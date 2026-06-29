@@ -625,3 +625,16 @@ def test_public_subsystem_modules_expose_stable_boundaries(tmp_path: Path) -> No
     write_demo_project(tmp_path)
     graph = discover_tex_graph(tmp_path, "paper.tex")
     assert graph["root_file"] == "paper.tex"
+    from revagent import candidates, core, experiments, latex, planning, proofs, rendering, reviews, validation, workspace
+
+    assert workspace.init_workspace is init_workspace
+    assert latex.latex_index is latex_index
+    assert reviews.ingest_comments is ingest_comments
+    assert candidates.propose_candidates is propose_candidates
+    assert planning.plan_item is plan_item
+    assert proofs.proof_plan_for_item is proof_plan_for_item
+    assert experiments.experiment_contract is experiment_contract
+    assert rendering.create_draft is create_draft
+    assert validation.validate_workspace is validate_workspace
+    assert core.init_workspace is init_workspace
+    assert core.proof_plan_for_item is proof_plan_for_item

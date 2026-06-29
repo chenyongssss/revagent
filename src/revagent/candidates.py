@@ -1,6 +1,6 @@
 """Candidate edit state machine and safe-apply public API."""
 
-from .core import (
+from ._core_impl import (
     apply_approved_candidates,
     approve_candidate,
     candidate_summary,

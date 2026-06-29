@@ -1,6 +1,6 @@
 """Reviewer comment parsing, classification, and item workflow public API."""
 
-from .core import (
+from ._core_impl import (
     classify_item,
     create_plan,
     first_sentence,

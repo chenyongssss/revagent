@@ -1,6 +1,6 @@
 """Markdown/rendering public API."""
 
-from .core import (
+from ._core_impl import (
     create_draft,
     render_experiment_plan,
     render_open_issues,

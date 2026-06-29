@@ -140,4 +140,5 @@ section, theorem/proof block, figure, table, label, or fallback line.
 
 The package keeps `revagent.core` as a compatibility facade while exposing
 subsystem modules for new integrations: `workspace`, `latex`, `reviews`,
-`candidates`, `lanes`, `rendering`, and `validation`.
+`planning`, `proofs`, `experiments`, `candidates`, `lanes`, `rendering`, and
+`validation`.

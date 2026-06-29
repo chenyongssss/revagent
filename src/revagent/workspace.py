@@ -1,6 +1,6 @@
 """Workspace schema, config, IO, and migration public API."""
 
-from .core import (
+from ._core_impl import (
     CURRENT_SCHEMA_VERSION,
     SCHEMA_FILES,
     WORKSPACE,
