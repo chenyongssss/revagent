@@ -2,7 +2,7 @@
 
 ## Current Directive
 
-Future tasks must begin by reading this file, then continue the roadmap below. Phase 1 is complete and committed. Phase 2 adds the durable facts / verification memory layer that external agents can use for grounded planning.
+Future tasks must begin by reading this file, then continue the roadmap below. Phases 1-6 are complete. The next phase should extend supervision beyond read-only artifact inspection without weakening the manual safety gates.
 
 ## Completed Phase 1
 
@@ -113,3 +113,16 @@ Future tasks must begin by reading this file, then continue the roadmap below. P
 - Verify `revagent validate` reports malformed external run JSONL.
 - Verify queued run records with missing launch scripts generate warnings.
 - Verify invalid lifecycle status and incomplete manual marks generate warnings.
+
+## Phase 6 Scope
+
+- Add read-only external-run artifact inspection:
+  - `revagent run-log RUN_ID --artifact prompt|stdout|stderr|launch`
+- Let operators inspect prompts, logs, and queued launch scripts without opening workspace files manually.
+- Keep this as a supervision usability layer only; it must not mutate run records or launch background processes.
+
+## Phase 6 Test Plan
+
+- Verify completed direct runs expose stdout, stderr, and prompt artifacts.
+- Verify queued runs expose the launch script and return a clear error for missing stdout/stderr.
+- Verify unknown run ids and missing artifact paths fail cleanly.

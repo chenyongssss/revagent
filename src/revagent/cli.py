@@ -69,6 +69,7 @@ from .rendering import create_draft, incorporate_drafts
 from .reviews import create_plan, ingest_comments
 from .validation import doctor, validate_workspace
 from .external_agent import (
+    external_agent_run_artifact,
     get_external_agent_run,
     load_external_agent_runs,
     mark_external_agent_run,
@@ -228,6 +229,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_mark.add_argument("run_id")
     run_mark.add_argument("--status", required=True, choices=["done", "failed", "canceled"])
     run_mark.add_argument("--note", default="")
+    run_log = sub.add_parser("run-log", help="Print an external agent run artifact.")
+    run_log.add_argument("run_id")
+    run_log.add_argument("--artifact", default="stdout", choices=["prompt", "stdout", "stderr", "launch"])
     agent_plan = sub.add_parser("agent-plan", help="Create a goal-oriented agent session plan.")
     agent_plan.add_argument("--goal", required=True, choices=["rebuttal-draft", "proof-response", "experiment-response", "full-revision-pass"])
     sub.add_parser("agent-session", help="Show recorded goal-oriented agent sessions.")
@@ -677,6 +681,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}")
             return 1
         print(render_external_agent_run_detail(result), end="")
+        return 0
+    if args.command == "run-log":
+        config = load_config(base)
+        try:
+            run = get_external_agent_run(config, args.run_id)
+            print(external_agent_run_artifact(run, args.artifact), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
         return 0
     if args.command == "agent-plan":
         try:

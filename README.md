@@ -56,6 +56,7 @@ revagent monitor
 revagent run --dry-run
 revagent run --detach
 revagent run-status
+revagent run-log RUN_ID --artifact prompt
 revagent run-recover --dry-run
 revagent run-mark RUN_ID --status done --note "Finished from launch script."
 revagent dashboard
@@ -177,6 +178,7 @@ run experiments.
 - `revagent monitor`: refresh state and print environment checks, blockers, and the next recovery command.
 - `revagent run [--goal text] [--backend codex] [--dry-run] [--detach] [--limit N] [--dangerous-autonomy]`: generate a RevAgent-aware prompt and optionally launch the external Codex runner. `--detach` writes a launch script and records a queued run without starting a background daemon. By default, the prompt preserves RevAgent manual safety gates.
 - `revagent run-status [RUN_ID]`: show external agent run history or one run with recovery hints.
+- `revagent run-log RUN_ID [--artifact prompt|stdout|stderr|launch]`: print a recorded external-run prompt, log, or queued launch script.
 - `revagent run-recover [RUN_ID] [--dry-run]`: regenerate or rerun a previous external agent request using the same backend, goal, and autonomy setting.
 - `revagent run-mark RUN_ID --status done|failed|canceled [--note text]`: manually update a queued external run after running its launch script.
 - `revagent dashboard`: write `.revagent/dashboard/index.html` with the current agent, lane, readiness, decision, and run state.

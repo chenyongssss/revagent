@@ -28,6 +28,12 @@ from .readiness import write_revision_readiness
 
 EXTERNAL_BACKENDS = {"codex"}
 EXTERNAL_RUN_MARK_STATUSES = {"done", "failed", "canceled"}
+EXTERNAL_RUN_ARTIFACTS = {
+    "prompt": "prompt_path",
+    "stdout": "stdout_path",
+    "stderr": "stderr_path",
+    "launch": "launch_script",
+}
 
 
 def external_agent_runs_path(config: Config) -> Path:
@@ -154,6 +160,18 @@ def render_external_agent_run_detail(run: dict[str, object]) -> str:
         f"- Recovery: {external_run_recovery_hint(run)}",
     ]
     return "\n".join(lines).rstrip() + "\n"
+
+
+def external_agent_run_artifact(run: dict[str, object], artifact: str) -> str:
+    if artifact not in EXTERNAL_RUN_ARTIFACTS:
+        raise ValueError(f"invalid external run artifact {artifact}; choose one of {', '.join(sorted(EXTERNAL_RUN_ARTIFACTS))}")
+    path_value = str(run.get(EXTERNAL_RUN_ARTIFACTS[artifact], "") or "")
+    if not path_value:
+        raise ValueError(f"external run {run.get('run_id', '')} has no {artifact} artifact")
+    path = Path(path_value)
+    if not path.exists():
+        raise ValueError(f"external run {artifact} artifact is missing: {path}")
+    return read_text(path)
 
 
 def recover_external_agent_run(
@@ -579,6 +597,7 @@ def write_dashboard_html(base: Path) -> Path:
 __all__ = [
     "build_external_agent_prompt",
     "build_monitor_report",
+    "external_agent_run_artifact",
     "load_external_agent_runs",
     "get_external_agent_run",
     "mark_external_agent_run",
