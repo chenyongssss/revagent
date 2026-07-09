@@ -148,6 +148,9 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     write_text(ws / "agent_decisions.md", "# Agent Decisions\n\nNo agent decisions recorded yet.\n")
     write_json(ws / "agent_eval_report.json", {"version": 1, "generated_at": "", "ok": False, "fixtures": []})
     write_text(ws / "agent_eval_report.md", "# Agent Eval Report\n\nNo agent eval report generated yet.\n")
+    write_text(ws / "external_agent_runs.jsonl", "")
+    write_text(ws / "external_agent_runs.md", "# External Agent Runs\n\nNo external agent runs recorded yet.\n")
+    write_text(ws / "monitor.md", "# RevAgent Monitor\n\nNo monitor report generated yet.\n")
     write_json(ws / "llm_drafts.json", {})
     write_text(ws / "llm_drafts.md", "# LLM Drafts\n\nNo LLM drafts generated yet.\n")
     write_text(ws / "response_letter.md", f"# {profile['response_heading']}\n\n")
@@ -211,6 +214,9 @@ def schema_markdown() -> str:
             "- `agent_decisions.md`: reviewable rendering of open, stale, resolved, and dismissed decisions.",
             "- `agent_eval_report.json`: deterministic agent trajectory eval results.",
             "- `agent_eval_report.md`: reviewable rendering of the latest agent eval report.",
+            "- `external_agent_runs.jsonl`: append-only external Codex/agent run ledger.",
+            "- `external_agent_runs.md`: reviewable rendering of external agent runs.",
+            "- `monitor.md`: latest interactive recovery monitor output.",
             "- `llm_drafts.json`: offline LLM reviewer-intent, response, candidate-text drafts, author review status, and quality status keyed by review item id.",
             "- `llm_drafts.md`: reviewable rendering of LLM drafts, author review notes, and quality issues. Entries are never auto-approved or auto-applied.",
             "- `revision_provenance.json`: generated per-item provenance snapshot linking reviewer comments, LLM drafts, candidates, proof/experiment gates, and apply records.",
@@ -277,6 +283,9 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "agent_decisions.md": "# Agent Decisions\n\nNo agent decisions recorded yet.\n",
         "agent_eval_report.json": {"version": 1, "generated_at": "", "ok": False, "fixtures": []},
         "agent_eval_report.md": "# Agent Eval Report\n\nNo agent eval report generated yet.\n",
+        "external_agent_runs.jsonl": "",
+        "external_agent_runs.md": "# External Agent Runs\n\nNo external agent runs recorded yet.\n",
+        "monitor.md": "# RevAgent Monitor\n\nNo monitor report generated yet.\n",
         "llm_drafts.json": {},
         "llm_drafts.md": "# LLM Drafts\n\nNo LLM drafts generated yet.\n",
         "revision_provenance.json": {"version": 1, "generated_at": "", "source_fingerprint": "", "items": []},
@@ -510,6 +519,9 @@ def export_artifacts(base: Path) -> Path:
         "agent_decisions.md",
         "agent_eval_report.json",
         "agent_eval_report.md",
+        "external_agent_runs.jsonl",
+        "external_agent_runs.md",
+        "monitor.md",
         "llm_drafts.json",
         "llm_drafts.md",
         "revision_provenance.json",

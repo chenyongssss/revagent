@@ -61,6 +61,20 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
                 warnings.append(f"agent_runs.jsonl line {index} has no task identity")
             if record.get("status") in {"done", "failed", "skipped"} and "dependencies" not in record:
                 warnings.append(f"agent_runs.jsonl line {index} has no dependency metadata")
+    external_runs = config.workspace / "external_agent_runs.jsonl"
+    if external_runs.exists():
+        for index, line in enumerate(read_text(external_runs).splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                warnings.append(f"invalid JSONL in external_agent_runs.jsonl line {index}: {exc}")
+                continue
+            if not record.get("backend"):
+                warnings.append(f"external_agent_runs.jsonl line {index} has no backend")
+            if not record.get("prompt_path"):
+                warnings.append(f"external_agent_runs.jsonl line {index} has no prompt_path")
     experiment_attempts_path = config.workspace / "experiment_run_attempts.jsonl"
     if experiment_attempts_path.exists():
         for index, line in enumerate(read_text(experiment_attempts_path).splitlines(), start=1):

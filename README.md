@@ -52,6 +52,8 @@ revagent close-item R003
 revagent provenance
 revagent agent-status
 revagent monitor
+revagent run --dry-run
+revagent dashboard
 revagent agent-plan --goal rebuttal-draft
 revagent agent-session
 revagent agent-resume --watch --cycles 1
@@ -109,6 +111,9 @@ run experiments.
 - `agent_decisions.md`: reviewable rendering of open, stale, resolved, and dismissed decisions.
 - `agent_eval_report.json`: deterministic agent trajectory eval results for built-in fixtures.
 - `agent_eval_report.md`: reviewable rendering of the latest agent eval report.
+- `external_agent_runs.jsonl`: append-only external agent run ledger.
+- `external_agent_runs.md`: reviewable rendering of external agent runs.
+- `monitor.md`: latest interactive recovery monitor output.
 - `llm_drafts.json`: offline reviewer-intent, response, candidate-text drafts, author review status, and quality status marked as `llm_draft`.
 - `llm_drafts.md`: reviewable rendering of LLM drafts, review notes, and quality issues; these are never auto-approved or auto-applied.
 - `revision_provenance.json`: per-item provenance snapshot linking reviewer comments, LLM drafts, candidates, proof/experiment gates, and apply records.
@@ -161,7 +166,9 @@ run experiments.
 - `revagent validate [--compile]`: validate schema, LaTeX references, and optionally run `latexmk`.
 - `revagent status`: show item counts and workspace configuration.
 - `revagent agent-status`: build and print the safe-auto agent task queue without executing tasks.
-- `revagent monitor`: write and print the current agent dashboard for the revision workspace.
+- `revagent monitor`: refresh state and print environment checks, blockers, and the next recovery command.
+- `revagent run [--goal text] [--backend codex] [--dry-run] [--limit N] [--dangerous-autonomy]`: generate a RevAgent-aware prompt and optionally launch the external Codex runner. By default, the prompt preserves RevAgent manual safety gates.
+- `revagent dashboard`: write `.revagent/dashboard/index.html` with the current agent, lane, readiness, decision, and run state.
 - `revagent agent-plan --goal rebuttal-draft|proof-response|experiment-response|full-revision-pass`: create a goal-oriented agent session.
 - `revagent agent-session`: show recorded agent sessions.
 - `revagent agent-resume [--limit N] [--retry-failed] [--watch --interval N --cycles N]`: resume the current session through safe-auto tasks until blocked or complete; watch mode repeats resume cycles until the session blocks, fails, completes, or reaches the cycle limit.

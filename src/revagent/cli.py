@@ -67,6 +67,7 @@ from .review_analysis import analyze_all_review_items, analyze_review_item, rend
 from .rendering import create_draft, incorporate_drafts
 from .reviews import create_plan, ingest_comments
 from .validation import doctor, validate_workspace
+from .external_agent import render_monitor_report, run_external_agent, write_dashboard_html, write_monitor_report
 from .workspace import (
     clean_workspace,
     export_artifacts,
@@ -195,7 +196,14 @@ def build_parser() -> argparse.ArgumentParser:
     submit_pack.add_argument("--dry-run", action="store_true", help="Show missing submission package pieces without writing final artifacts.")
     sub.add_parser("status", help="Print workspace item counts and configuration.")
     sub.add_parser("agent-status", help="Build and print the safe-auto agent task queue.")
-    sub.add_parser("monitor", help="Write and print the agent dashboard.")
+    sub.add_parser("monitor", help="Refresh state and print the recovery monitor.")
+    sub.add_parser("dashboard", help="Write the static HTML agent dashboard.")
+    external_run = sub.add_parser("run", help="Launch an external agent runner.")
+    external_run.add_argument("--goal", default="", help="Goal prompt for the external agent.")
+    external_run.add_argument("--backend", default="codex", choices=["codex"], help="External agent backend.")
+    external_run.add_argument("--dry-run", action="store_true", help="Write and print the prompt without launching the backend.")
+    external_run.add_argument("--limit", type=int, default=None, help="Task limit hint included in the generated prompt.")
+    external_run.add_argument("--dangerous-autonomy", action="store_true", help="Allow prompt instructions for broader autonomy; still records the run.")
     agent_plan = sub.add_parser("agent-plan", help="Create a goal-oriented agent session plan.")
     agent_plan.add_argument("--goal", required=True, choices=["rebuttal-draft", "proof-response", "experiment-response", "full-revision-pass"])
     sub.add_parser("agent-session", help="Show recorded goal-oriented agent sessions.")
@@ -578,9 +586,31 @@ def main(argv: list[str] | None = None) -> int:
         print(render_agent_state(state), end="")
         return 0
     if args.command == "monitor":
-        dashboard = write_agent_dashboard(base)
-        print(render_agent_dashboard(dashboard), end="")
+        monitor = write_monitor_report(base)
+        write_dashboard_html(base)
+        print(render_monitor_report(monitor), end="")
         return 0
+    if args.command == "dashboard":
+        path = write_dashboard_html(base)
+        print(f"Wrote dashboard to {path}")
+        return 0
+    if args.command == "run":
+        try:
+            result = run_external_agent(base, backend=args.backend, goal=args.goal, dry_run=args.dry_run, limit=args.limit, dangerous_autonomy=args.dangerous_autonomy)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        if args.dry_run:
+            print(result.get("prompt", ""), end="")
+            return 0
+        print(f"external agent {result.get('status')} backend={result.get('backend')} prompt={result.get('prompt_path')}")
+        if result.get("stdout_path"):
+            print(f"stdout: {result['stdout_path']}")
+        if result.get("stderr_path"):
+            print(f"stderr: {result['stderr_path']}")
+        if result.get("error"):
+            print(f"error: {result['error']}")
+        return 0 if result.get("status") == "done" else 1
     if args.command == "agent-plan":
         try:
             session = plan_agent_session(base, args.goal)
