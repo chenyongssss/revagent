@@ -2,7 +2,7 @@
 
 ## Current Directive
 
-Future tasks must begin by reading this file, then continue the roadmap below. Phases 1-7 are complete. The next phase can add stronger supervision integration, but must preserve manual safety gates.
+Future tasks must begin by reading this file, then continue the roadmap below. Phases 1-8 are complete. The next phase can add richer evaluation and strategy feedback for supervisor decisions, but must preserve manual safety gates.
 
 ## Completed Phase 1
 
@@ -140,3 +140,19 @@ Future tasks must begin by reading this file, then continue the roadmap below. P
 - Verify supervision reports queued runs with launch-script readiness.
 - Verify supervision reports failed runs with log/recovery guidance.
 - Verify one-run and all-run supervision modes fail cleanly for missing run ids.
+
+## Phase 8 Scope
+
+- Add automatic plan evolution and a conservative supervisor loop:
+  - `revagent supervisor-plan [--update-plan]`
+  - `revagent supervisor-loop [--cycles N] [--dry-run]`
+- Generate the next safe supervisor plan from `plan.md`, agent state, monitor/dashboard state, external-run ledger, validation output, and test expectations.
+- Execute only safe internal RevAgent commands: refresh monitor/dashboard/memory/readiness, run safe-auto tasks until blocked, and summarize external-run supervision.
+- Never approve proof workflows, approve/apply candidate edits, accept LLM drafts, record experiment results, launch external agents, or run tests automatically.
+
+## Phase 8 Test Plan
+
+- Verify `supervisor-plan` writes JSON/Markdown from plan, ledger, dashboard, and validation context.
+- Verify `supervisor-plan --update-plan` appends Phase 8 once and is idempotent.
+- Verify `supervisor-loop --dry-run` records intended safe actions without executing them.
+- Verify `supervisor-loop` executes safe internal actions and stops at manual gates.

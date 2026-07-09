@@ -71,6 +71,8 @@ revagent agent-eval --all
 revagent agent-next
 revagent agent-run --until-blocked
 revagent agent-report
+revagent supervisor-plan --update-plan
+revagent supervisor-loop --dry-run
 revagent validate
 revagent export
 ```
@@ -121,6 +123,10 @@ run experiments.
 - `external_agent_runs.jsonl`: append-only external agent run ledger.
 - `external_agent_runs.md`: reviewable rendering of external agent runs.
 - `monitor.md`: latest interactive recovery monitor output.
+- `supervisor_plan.json`: generated plan-evolution and safe-loop task plan.
+- `supervisor_plan.md`: reviewable rendering of the current supervisor plan.
+- `supervisor_runs.jsonl`: append-only conservative supervisor loop ledger.
+- `supervisor_runs.md`: reviewable rendering of supervisor loop runs.
 - `llm_drafts.json`: offline reviewer-intent, response, candidate-text drafts, author review status, and quality status marked as `llm_draft`.
 - `llm_drafts.md`: reviewable rendering of LLM drafts, review notes, and quality issues; these are never auto-approved or auto-applied.
 - `revision_provenance.json`: per-item provenance snapshot linking reviewer comments, LLM drafts, candidates, proof/experiment gates, and apply records.
@@ -197,6 +203,8 @@ run experiments.
 - `revagent agent-next`: show the next safe task or blocking manual gate with the required command.
 - `revagent agent-run [--limit N] [--until-blocked] [--retry-failed] [--max-failures N]`: execute safe tasks such as planning, proof/experiment contracts, draft/propose, LLM draft generation/checking, provenance refresh, and validation; every task run is logged with input dependency hashes.
 - `revagent agent-report`: write and print the scheduler, stale-input, failure, and manual-gate report.
+- `revagent supervisor-plan [--update-plan]`: generate the next conservative plan-evolution task plan from `plan.md`, monitor/dashboard state, ledgers, and validation.
+- `revagent supervisor-loop [--cycles N] [--dry-run] [--update-plan]`: execute only safe internal supervisor tasks and stop at manual gates.
 - `revagent doctor`: check Python, workspace, profiles, and optional `latexmk`.
 - `revagent clean`: remove generated logs and exported artifacts.
 - `revagent export`: copy deliverables into `.revagent/artifacts`.

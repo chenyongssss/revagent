@@ -22,4 +22,5 @@ from .memory import *  # noqa: F403
 from .readiness import *  # noqa: F403
 from .review_analysis import *  # noqa: F403
 from .external_agent import *  # noqa: F403
+from .supervisor import *  # noqa: F403
 from .validation import *  # noqa: F403

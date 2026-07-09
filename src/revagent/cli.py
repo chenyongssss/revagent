@@ -82,6 +82,7 @@ from .external_agent import (
     write_dashboard_html,
     write_monitor_report,
 )
+from .supervisor import build_supervisor_plan, render_supervisor_plan, render_supervisor_runs, run_supervisor_loop
 from .workspace import (
     clean_workspace,
     export_artifacts,
@@ -261,6 +262,12 @@ def build_parser() -> argparse.ArgumentParser:
     eval_mode.add_argument("--all", action="store_true", help="Run every built-in eval fixture.")
     sub.add_parser("agent-next", help="Show the next safe task or blocking manual gate.")
     sub.add_parser("agent-report", help="Write and print the agent scheduler, stale-input, and manual-gate report.")
+    supervisor_plan = sub.add_parser("supervisor-plan", help="Generate the next conservative supervisor plan.")
+    supervisor_plan.add_argument("--update-plan", action="store_true", help="Append the Phase 8 roadmap section to plan.md if missing.")
+    supervisor_loop = sub.add_parser("supervisor-loop", help="Run the conservative supervisor loop over safe internal tasks.")
+    supervisor_loop.add_argument("--cycles", type=int, default=1)
+    supervisor_loop.add_argument("--dry-run", action="store_true")
+    supervisor_loop.add_argument("--update-plan", action="store_true", help="Append the Phase 8 roadmap section to plan.md if missing.")
     agent_run = sub.add_parser("agent-run", help="Execute safe-auto agent tasks.")
     agent_run.add_argument("--limit", type=int, default=None, help="Maximum number of safe pending tasks to execute.")
     agent_run.add_argument("--until-blocked", action="store_true", help="Run safe tasks until only blocked/manual work remains.")
@@ -780,6 +787,17 @@ def main(argv: list[str] | None = None) -> int:
         write_agent_dashboard(base)
         print(render_agent_report(report), end="")
         return 0
+    if args.command == "supervisor-plan":
+        print(render_supervisor_plan(build_supervisor_plan(base, update_plan=args.update_plan)), end="")
+        return 0
+    if args.command == "supervisor-loop":
+        try:
+            result = run_supervisor_loop(base, cycles=args.cycles, dry_run=args.dry_run, update_plan=args.update_plan)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(render_supervisor_runs([result]), end="")
+        return 0 if result.get("status") != "failed" else 1
     if args.command == "agent-run":
         state = run_agent_once(base, limit=args.limit, until_blocked=args.until_blocked, retry_failed=args.retry_failed, max_failures=args.max_failures)
         print(render_agent_state(state), end="")

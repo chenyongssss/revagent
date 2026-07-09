@@ -151,6 +151,10 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     write_text(ws / "external_agent_runs.jsonl", "")
     write_text(ws / "external_agent_runs.md", "# External Agent Runs\n\nNo external agent runs recorded yet.\n")
     write_text(ws / "monitor.md", "# RevAgent Monitor\n\nNo monitor report generated yet.\n")
+    write_json(ws / "supervisor_plan.json", {"version": 1, "generated_at": "", "tasks": []})
+    write_text(ws / "supervisor_plan.md", "# Supervisor Plan\n\nNo supervisor plan generated yet.\n")
+    write_text(ws / "supervisor_runs.jsonl", "")
+    write_text(ws / "supervisor_runs.md", "# Supervisor Runs\n\nNo supervisor runs recorded yet.\n")
     write_json(ws / "llm_drafts.json", {})
     write_text(ws / "llm_drafts.md", "# LLM Drafts\n\nNo LLM drafts generated yet.\n")
     write_text(ws / "response_letter.md", f"# {profile['response_heading']}\n\n")
@@ -220,6 +224,10 @@ def schema_markdown() -> str:
             "- `external_agent_runs.jsonl`: append-only external Codex/agent run ledger.",
             "- `external_agent_runs.md`: reviewable rendering of external agent runs.",
             "- `monitor.md`: latest interactive recovery monitor output.",
+            "- `supervisor_plan.json`: generated plan-evolution and safe-loop task plan.",
+            "- `supervisor_plan.md`: reviewable rendering of the current supervisor plan.",
+            "- `supervisor_runs.jsonl`: append-only conservative supervisor loop ledger.",
+            "- `supervisor_runs.md`: reviewable rendering of supervisor loop runs.",
             "- `llm_drafts.json`: offline LLM reviewer-intent, response, candidate-text drafts, author review status, and quality status keyed by review item id.",
             "- `llm_drafts.md`: reviewable rendering of LLM drafts, author review notes, and quality issues. Entries are never auto-approved or auto-applied.",
             "- `revision_provenance.json`: generated per-item provenance snapshot linking reviewer comments, LLM drafts, candidates, proof/experiment gates, and apply records.",
@@ -291,6 +299,10 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "external_agent_runs.jsonl": "",
         "external_agent_runs.md": "# External Agent Runs\n\nNo external agent runs recorded yet.\n",
         "monitor.md": "# RevAgent Monitor\n\nNo monitor report generated yet.\n",
+        "supervisor_plan.json": {"version": 1, "generated_at": "", "tasks": []},
+        "supervisor_plan.md": "# Supervisor Plan\n\nNo supervisor plan generated yet.\n",
+        "supervisor_runs.jsonl": "",
+        "supervisor_runs.md": "# Supervisor Runs\n\nNo supervisor runs recorded yet.\n",
         "llm_drafts.json": {},
         "llm_drafts.md": "# LLM Drafts\n\nNo LLM drafts generated yet.\n",
         "revision_provenance.json": {"version": 1, "generated_at": "", "source_fingerprint": "", "items": []},
@@ -540,6 +552,10 @@ def export_artifacts(base: Path) -> Path:
         "external_agent_runs.jsonl",
         "external_agent_runs.md",
         "monitor.md",
+        "supervisor_plan.json",
+        "supervisor_plan.md",
+        "supervisor_runs.jsonl",
+        "supervisor_runs.md",
         "llm_drafts.json",
         "llm_drafts.md",
         "revision_provenance.json",

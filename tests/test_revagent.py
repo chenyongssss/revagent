@@ -45,6 +45,7 @@ from revagent.core import (
     load_candidates,
     load_experiment_run_attempts,
     load_llm_drafts,
+    load_supervisor_runs,
     build_revision_memory,
     plan_all_items,
     plan_item,
@@ -65,9 +66,11 @@ from revagent.core import (
     render_revision_memory,
     run_external_agent,
     run_agent_once,
+    run_supervisor_loop,
     write_dashboard_html,
     write_revision_memory,
     write_revision_readiness,
+    build_supervisor_plan,
     build_submit_pack_dry_run,
     load_agent_decisions,
     load_agent_sessions,
@@ -1667,6 +1670,34 @@ def test_agent_session_plan_resume_blockers_and_complete_check(tmp_path: Path, m
     checked = load_agent_sessions(load_config(tmp_path))[-1]
     assert checked["status"] == "blocked"
     assert "Agent Sessions" in (tmp_path / ".revagent" / "agent_sessions.md").read_text(encoding="utf-8")
+
+
+def test_supervisor_plan_evolves_plan_and_loop_runs_safe_tasks(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    (tmp_path / "plan.md").write_text("# RevAgent Iteris-Style Roadmap\n\n## Phase 7 Scope\n\nDone.\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    plan = build_supervisor_plan(tmp_path, update_plan=True)
+    assert plan["next_phase"] == 8
+    assert any(task["kind"] == "refresh_supervisor_context" for task in plan["tasks"])
+    plan_text = (tmp_path / "plan.md").read_text(encoding="utf-8")
+    assert plan_text.count("## Phase 8 Scope") == 1
+    assert main(["supervisor-plan", "--update-plan"]) == 0
+    assert (tmp_path / "plan.md").read_text(encoding="utf-8").count("## Phase 8 Scope") == 1
+    assert (tmp_path / ".revagent" / "supervisor_plan.json").exists()
+    assert "Supervisor Plan" in (tmp_path / ".revagent" / "supervisor_plan.md").read_text(encoding="utf-8")
+
+    assert main(["supervisor-loop", "--dry-run", "--cycles", "1"]) == 0
+    dry_run = load_supervisor_runs(load_config(tmp_path))[-1]
+    assert dry_run["dry_run"] is True
+    assert any(task["status"] == "planned" for task in dry_run["executed"])
+
+    result = run_supervisor_loop(tmp_path, cycles=1)
+    assert result["status"] in {"blocked", "complete"}
+    assert any(task["kind"] == "refresh_supervisor_context" for task in result["executed"])
+    assert (tmp_path / ".revagent" / "supervisor_runs.md").exists()
 
 
 def test_agent_decision_queue_tracks_resolve_and_dismiss(tmp_path: Path, monkeypatch) -> None:
