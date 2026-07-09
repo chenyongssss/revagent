@@ -46,6 +46,7 @@ from revagent.core import (
     load_experiment_run_attempts,
     load_llm_drafts,
     load_supervisor_runs,
+    build_supervisor_feedback,
     build_revision_memory,
     plan_all_items,
     plan_item,
@@ -1698,6 +1699,53 @@ def test_supervisor_plan_evolves_plan_and_loop_runs_safe_tasks(tmp_path: Path, m
     assert result["status"] in {"blocked", "complete"}
     assert any(task["kind"] == "refresh_supervisor_context" for task in result["executed"])
     assert (tmp_path / ".revagent" / "supervisor_runs.md").exists()
+
+
+def test_supervisor_feedback_prioritizes_eval_and_run_failures(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    (tmp_path / "plan.md").write_text("# RevAgent Iteris-Style Roadmap\n\n## Phase 8 Scope\n\nDone.\n", encoding="utf-8")
+    config = load_config(tmp_path)
+    (config.workspace / "agent_eval_report.json").write_text(
+        json.dumps(
+            {
+                "ok": False,
+                "fixtures": [
+                    {
+                        "fixture": "safety-gates",
+                        "ok": False,
+                        "checks": [{"name": "decision_queue_blocks", "ok": False, "detail": "no open decisions remain"}],
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (config.workspace / "supervisor_runs.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "SUPRUN",
+                "status": "failed",
+                "executed": [{"kind": "run_safe_internal_tasks", "status": "failed", "result": "boom"}],
+                "blocked": [{"kind": "run_tests", "command": "python -m pytest"}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    feedback = build_supervisor_feedback(tmp_path, update_plan=True)
+    assert feedback["eval_failures"]
+    assert any(item["kind"] == "fix_eval_regression" for item in feedback["recommendations"])
+    assert any(item["kind"] == "recover_failed_supervisor_task" for item in feedback["recommendations"])
+    assert (tmp_path / "plan.md").read_text(encoding="utf-8").count("## Phase 9 Scope") == 1
+    assert main(["supervisor-feedback", "--update-plan"]) == 0
+    assert (tmp_path / "plan.md").read_text(encoding="utf-8").count("## Phase 9 Scope") == 1
+    plan = build_supervisor_plan(tmp_path)
+    assert plan["feedback"]["top_recommendation"]["kind"] == "fix_eval_regression"
+    assert "Supervisor Feedback" in (config.workspace / "supervisor_feedback.md").read_text(encoding="utf-8")
 
 
 def test_agent_decision_queue_tracks_resolve_and_dismiss(tmp_path: Path, monkeypatch) -> None:

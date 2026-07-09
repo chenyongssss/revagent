@@ -2,7 +2,7 @@
 
 ## Current Directive
 
-Future tasks must begin by reading this file, then continue the roadmap below. Phases 1-8 are complete. The next phase can add richer evaluation and strategy feedback for supervisor decisions, but must preserve manual safety gates.
+Future tasks must begin by reading this file, then continue the roadmap below. Phases 1-9 are complete. The next phase can add deeper multi-worker orchestration or background supervision, but must preserve manual safety gates.
 
 ## Completed Phase 1
 
@@ -156,3 +156,17 @@ Future tasks must begin by reading this file, then continue the roadmap below. P
 - Verify `supervisor-plan --update-plan` appends Phase 8 once and is idempotent.
 - Verify `supervisor-loop --dry-run` records intended safe actions without executing them.
 - Verify `supervisor-loop` executes safe internal actions and stops at manual gates.
+
+## Phase 9 Scope
+
+- Add supervisor evaluation and strategy feedback:
+  - `revagent supervisor-feedback`
+- Generate a read-only strategy report from supervisor runs, agent eval results, validation output, manual gates, and `plan.md`.
+- Feed concise strategy feedback into `supervisor-plan` so the next loop can prioritize safe actions and surface blocked work clearly.
+- Keep feedback advisory only; do not auto-approve manual gates, mutate strategy policy, launch external agents, or run tests automatically.
+
+## Phase 9 Test Plan
+
+- Verify `supervisor-feedback` writes JSON/Markdown from eval, validation, and supervisor run history.
+- Verify failed eval checks and failed supervisor tasks become strategy recommendations.
+- Verify `supervisor-plan` includes the latest feedback summary.

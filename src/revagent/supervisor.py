@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 from ._models import Config
-from ._utils import load_config, now_iso, read_text, write_json, write_text
+from ._utils import load_config, now_iso, read_json, read_text, write_json, write_text
 from .agent import build_agent_state, run_agent_once, write_agent_state
 from .external_agent import (
     build_monitor_report,
@@ -29,6 +29,10 @@ def supervisor_plan_path(config: Config) -> Path:
 
 def supervisor_runs_path(config: Config) -> Path:
     return config.workspace / "supervisor_runs.jsonl"
+
+
+def supervisor_feedback_path(config: Config) -> Path:
+    return config.workspace / "supervisor_feedback.json"
 
 
 def repo_plan_path(base: Path) -> Path:
@@ -66,11 +70,30 @@ def phase_8_plan_block() -> str:
 """
 
 
+def phase_9_plan_block() -> str:
+    return """## Phase 9 Scope
+
+- Add supervisor evaluation and strategy feedback:
+  - `revagent supervisor-feedback`
+- Generate a read-only strategy report from supervisor runs, agent eval results, validation output, manual gates, and `plan.md`.
+- Feed concise strategy feedback into `supervisor-plan` so the next loop can prioritize safe actions and surface blocked work clearly.
+- Keep feedback advisory only; do not auto-approve manual gates, mutate strategy policy, launch external agents, or run tests automatically.
+
+## Phase 9 Test Plan
+
+- Verify `supervisor-feedback` writes JSON/Markdown from eval, validation, and supervisor run history.
+- Verify failed eval checks and failed supervisor tasks become strategy recommendations.
+- Verify `supervisor-plan` includes the latest feedback summary.
+"""
+
+
 def maybe_update_plan_md(base: Path, phase: int = 8) -> Path:
     path = repo_plan_path(base)
     text = read_text(path) if path.exists() else "# RevAgent Iteris-Style Roadmap\n\n"
     if phase == 8 and not phase_present(text, 8):
         write_text(path, text.rstrip() + "\n\n" + phase_8_plan_block())
+    if phase == 9 and not phase_present(text, 9):
+        write_text(path, text.rstrip() + "\n\n" + phase_9_plan_block())
     return path
 
 
@@ -146,6 +169,136 @@ def supervisor_tasks(base: Path, monitor: dict[str, object], validation: dict[st
     return tasks
 
 
+def failed_eval_checks(report: dict[str, object]) -> list[dict[str, object]]:
+    failures = []
+    fixtures = report.get("fixtures", [])
+    if not isinstance(fixtures, list):
+        return failures
+    for fixture in fixtures:
+        for check in fixture.get("checks", []):
+            if not check.get("ok"):
+                failures.append(
+                    {
+                        "fixture": fixture.get("fixture", ""),
+                        "check": check.get("name", ""),
+                        "detail": check.get("detail", ""),
+                    }
+                )
+    return failures
+
+
+def build_supervisor_feedback(base: Path, *, update_plan: bool = False) -> dict[str, object]:
+    config = load_config(base)
+    if update_plan:
+        maybe_update_plan_md(base, 9)
+    plan_path = repo_plan_path(base)
+    plan_text = read_text(plan_path) if plan_path.exists() else ""
+    validation = validate_workspace(base)
+    eval_report = read_json(config.workspace / "agent_eval_report.json", {})
+    if not isinstance(eval_report, dict):
+        eval_report = {}
+    runs = load_supervisor_runs(config)
+    latest_run = runs[-1] if runs else {}
+    failed_tasks = [
+        {"kind": task.get("kind", ""), "status": task.get("status", ""), "result": task.get("result", "")}
+        for run in runs[-10:]
+        for task in run.get("executed", [])
+        if task.get("status") == "failed"
+    ]
+    blocked_tasks = list(latest_run.get("blocked", [])) if latest_run else []
+    eval_failures = failed_eval_checks(eval_report)
+    recommendations = []
+    if eval_failures:
+        recommendations.append(
+            {
+                "kind": "fix_eval_regression",
+                "priority": "high",
+                "command": "revagent agent-eval --all",
+                "reason": f"{len(eval_failures)} eval checks are failing",
+            }
+        )
+    if failed_tasks:
+        recommendations.append(
+            {
+                "kind": "recover_failed_supervisor_task",
+                "priority": "high",
+                "command": "revagent supervisor-loop --dry-run",
+                "reason": f"{len(failed_tasks)} supervisor tasks failed in recent runs",
+            }
+        )
+    if validation.get("issues"):
+        recommendations.append(
+            {
+                "kind": "repair_validation_errors",
+                "priority": "high",
+                "command": "revagent validate",
+                "reason": f"{len(validation.get('issues', []))} validation errors are present",
+            }
+        )
+    elif validation.get("warnings"):
+        recommendations.append(
+            {
+                "kind": "inspect_validation_warnings",
+                "priority": "medium",
+                "command": "revagent validate",
+                "reason": f"{len(validation.get('warnings', []))} validation warnings are present",
+            }
+        )
+    if blocked_tasks:
+        recommendations.append(
+            {
+                "kind": "resolve_manual_gates",
+                "priority": "medium",
+                "command": "revagent agent-decisions",
+                "reason": f"{len(blocked_tasks)} manual-only supervisor tasks are blocking autonomy",
+            }
+        )
+    if not recommendations:
+        recommendations.append(
+            {
+                "kind": "continue_safe_loop",
+                "priority": "low",
+                "command": "revagent supervisor-loop --cycles 1",
+                "reason": "no eval, validation, or supervisor failures detected",
+            }
+        )
+    feedback = {
+        "version": 1,
+        "generated_at": now_iso(),
+        "plan_path": str(plan_path),
+        "completed_phase_count": completed_phase_count(plan_text),
+        "eval_ok": bool(eval_report.get("ok")) if eval_report else False,
+        "eval_failures": eval_failures,
+        "validation_ok": validation.get("ok", False),
+        "validation_warnings": validation.get("warnings", []),
+        "validation_issues": validation.get("issues", []),
+        "supervisor_run_count": len(runs),
+        "latest_supervisor_status": latest_run.get("status", "") if latest_run else "",
+        "failed_supervisor_tasks": failed_tasks,
+        "blocked_tasks": blocked_tasks,
+        "recommendations": recommendations,
+        "safety": {
+            "advisory_only": True,
+            "approves_manual_gates": False,
+            "launches_external_agents": False,
+            "runs_tests_automatically": False,
+        },
+    }
+    write_json(supervisor_feedback_path(config), feedback)
+    write_text(config.workspace / "supervisor_feedback.md", render_supervisor_feedback(feedback))
+    return feedback
+
+
+def feedback_summary(feedback: dict[str, object]) -> dict[str, object]:
+    recommendations = list(feedback.get("recommendations", []))
+    return {
+        "eval_ok": feedback.get("eval_ok", False),
+        "validation_ok": feedback.get("validation_ok", False),
+        "latest_supervisor_status": feedback.get("latest_supervisor_status", ""),
+        "top_recommendation": recommendations[0] if recommendations else {},
+    }
+
+
 def build_supervisor_plan(base: Path, *, update_plan: bool = False) -> dict[str, object]:
     config = load_config(base)
     if update_plan:
@@ -157,6 +310,7 @@ def build_supervisor_plan(base: Path, *, update_plan: bool = False) -> dict[str,
     monitor = build_monitor_report(base)
     dashboard_path = write_dashboard_html(base)
     validation = validate_workspace(base)
+    feedback = build_supervisor_feedback(base)
     external_runs = load_external_agent_runs(config)
     phase_count = completed_phase_count(plan_text)
     next_phase = phase_count + 1 if not phase_present(plan_text, 8) else 8
@@ -175,6 +329,7 @@ def build_supervisor_plan(base: Path, *, update_plan: bool = False) -> dict[str,
         "validation_ok": validation.get("ok", False),
         "validation_warnings": validation.get("warnings", []),
         "validation_issues": validation.get("issues", []),
+        "feedback": feedback_summary(feedback),
         "tasks": supervisor_tasks(base, monitor, validation),
         "safety": {
             "executes_shell": False,
@@ -189,6 +344,8 @@ def build_supervisor_plan(base: Path, *, update_plan: bool = False) -> dict[str,
 
 
 def render_supervisor_plan(plan: dict[str, object]) -> str:
+    feedback = plan.get("feedback") or {}
+    top = feedback.get("top_recommendation", {}) if isinstance(feedback, dict) else {}
     lines = [
         "# Supervisor Plan",
         "",
@@ -199,10 +356,11 @@ def render_supervisor_plan(plan: dict[str, object]) -> str:
         f"- Dashboard: `{plan.get('dashboard_path', '')}`",
         f"- Monitor recommendation: `{plan.get('monitor_recommendation', '')}`",
         f"- Validation ok: {str(plan.get('validation_ok', False)).lower()}",
-        "",
-        "## Tasks",
-        "",
     ]
+    if feedback:
+        lines.append(f"- Feedback eval ok: {str(feedback.get('eval_ok', False)).lower()}")
+        lines.append(f"- Feedback recommendation: `{top.get('command', '')}` {top.get('reason', '')}")
+    lines.extend(["", "## Tasks", ""])
     for task in plan.get("tasks", []):
         lines.append(f"- `{task.get('id', '')}` [{task.get('status', '')}] {task.get('kind', '')}")
         lines.append(f"  command: `{task.get('command', '')}`")
@@ -325,10 +483,48 @@ def render_supervisor_runs(runs: list[dict[str, object]]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def render_supervisor_feedback(feedback: dict[str, object]) -> str:
+    lines = [
+        "# Supervisor Feedback",
+        "",
+        f"- Generated at: {feedback.get('generated_at', '')}",
+        f"- Completed phases: {feedback.get('completed_phase_count', 0)}",
+        f"- Eval ok: {str(feedback.get('eval_ok', False)).lower()}",
+        f"- Validation ok: {str(feedback.get('validation_ok', False)).lower()}",
+        f"- Supervisor runs: {feedback.get('supervisor_run_count', 0)}",
+        f"- Latest supervisor status: {feedback.get('latest_supervisor_status', '') or 'none'}",
+        "",
+        "## Recommendations",
+        "",
+    ]
+    for item in feedback.get("recommendations", []):
+        lines.append(f"- `{item.get('priority', '')}` {item.get('kind', '')}")
+        lines.append(f"  command: `{item.get('command', '')}`")
+        lines.append(f"  reason: {item.get('reason', '')}")
+    failures = feedback.get("eval_failures", [])
+    if failures:
+        lines.extend(["", "## Eval Failures", ""])
+        for failure in failures:
+            lines.append(f"- `{failure.get('fixture', '')}` {failure.get('check', '')}: {failure.get('detail', '')}")
+    failed_tasks = feedback.get("failed_supervisor_tasks", [])
+    if failed_tasks:
+        lines.extend(["", "## Failed Supervisor Tasks", ""])
+        for task in failed_tasks:
+            lines.append(f"- `{task.get('kind', '')}` {task.get('status', '')}: {task.get('result', '')}")
+    blocked = feedback.get("blocked_tasks", [])
+    if blocked:
+        lines.extend(["", "## Manual-Only Blockers", ""])
+        for task in blocked:
+            lines.append(f"- `{task.get('kind', '')}` command=`{task.get('command', '')}`")
+    return "\n".join(lines).rstrip() + "\n"
+
+
 __all__ = [
     "build_supervisor_plan",
+    "build_supervisor_feedback",
     "load_supervisor_runs",
     "maybe_update_plan_md",
+    "render_supervisor_feedback",
     "render_supervisor_plan",
     "render_supervisor_runs",
     "run_supervisor_loop",

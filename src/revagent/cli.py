@@ -82,7 +82,7 @@ from .external_agent import (
     write_dashboard_html,
     write_monitor_report,
 )
-from .supervisor import build_supervisor_plan, render_supervisor_plan, render_supervisor_runs, run_supervisor_loop
+from .supervisor import build_supervisor_feedback, build_supervisor_plan, render_supervisor_feedback, render_supervisor_plan, render_supervisor_runs, run_supervisor_loop
 from .workspace import (
     clean_workspace,
     export_artifacts,
@@ -268,6 +268,8 @@ def build_parser() -> argparse.ArgumentParser:
     supervisor_loop.add_argument("--cycles", type=int, default=1)
     supervisor_loop.add_argument("--dry-run", action="store_true")
     supervisor_loop.add_argument("--update-plan", action="store_true", help="Append the Phase 8 roadmap section to plan.md if missing.")
+    supervisor_feedback = sub.add_parser("supervisor-feedback", help="Generate read-only supervisor strategy feedback.")
+    supervisor_feedback.add_argument("--update-plan", action="store_true", help="Append the Phase 9 roadmap section to plan.md if missing.")
     agent_run = sub.add_parser("agent-run", help="Execute safe-auto agent tasks.")
     agent_run.add_argument("--limit", type=int, default=None, help="Maximum number of safe pending tasks to execute.")
     agent_run.add_argument("--until-blocked", action="store_true", help="Run safe tasks until only blocked/manual work remains.")
@@ -798,6 +800,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(render_supervisor_runs([result]), end="")
         return 0 if result.get("status") != "failed" else 1
+    if args.command == "supervisor-feedback":
+        print(render_supervisor_feedback(build_supervisor_feedback(base, update_plan=args.update_plan)), end="")
+        return 0
     if args.command == "agent-run":
         state = run_agent_once(base, limit=args.limit, until_blocked=args.until_blocked, retry_failed=args.retry_failed, max_failures=args.max_failures)
         print(render_agent_state(state), end="")

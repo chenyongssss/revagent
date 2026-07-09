@@ -155,6 +155,8 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     write_text(ws / "supervisor_plan.md", "# Supervisor Plan\n\nNo supervisor plan generated yet.\n")
     write_text(ws / "supervisor_runs.jsonl", "")
     write_text(ws / "supervisor_runs.md", "# Supervisor Runs\n\nNo supervisor runs recorded yet.\n")
+    write_json(ws / "supervisor_feedback.json", {"version": 1, "generated_at": "", "recommendations": []})
+    write_text(ws / "supervisor_feedback.md", "# Supervisor Feedback\n\nNo supervisor feedback generated yet.\n")
     write_json(ws / "llm_drafts.json", {})
     write_text(ws / "llm_drafts.md", "# LLM Drafts\n\nNo LLM drafts generated yet.\n")
     write_text(ws / "response_letter.md", f"# {profile['response_heading']}\n\n")
@@ -228,6 +230,8 @@ def schema_markdown() -> str:
             "- `supervisor_plan.md`: reviewable rendering of the current supervisor plan.",
             "- `supervisor_runs.jsonl`: append-only conservative supervisor loop ledger.",
             "- `supervisor_runs.md`: reviewable rendering of supervisor loop runs.",
+            "- `supervisor_feedback.json`: generated read-only supervisor strategy feedback.",
+            "- `supervisor_feedback.md`: reviewable rendering of supervisor strategy feedback.",
             "- `llm_drafts.json`: offline LLM reviewer-intent, response, candidate-text drafts, author review status, and quality status keyed by review item id.",
             "- `llm_drafts.md`: reviewable rendering of LLM drafts, author review notes, and quality issues. Entries are never auto-approved or auto-applied.",
             "- `revision_provenance.json`: generated per-item provenance snapshot linking reviewer comments, LLM drafts, candidates, proof/experiment gates, and apply records.",
@@ -303,6 +307,8 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "supervisor_plan.md": "# Supervisor Plan\n\nNo supervisor plan generated yet.\n",
         "supervisor_runs.jsonl": "",
         "supervisor_runs.md": "# Supervisor Runs\n\nNo supervisor runs recorded yet.\n",
+        "supervisor_feedback.json": {"version": 1, "generated_at": "", "recommendations": []},
+        "supervisor_feedback.md": "# Supervisor Feedback\n\nNo supervisor feedback generated yet.\n",
         "llm_drafts.json": {},
         "llm_drafts.md": "# LLM Drafts\n\nNo LLM drafts generated yet.\n",
         "revision_provenance.json": {"version": 1, "generated_at": "", "source_fingerprint": "", "items": []},
@@ -556,6 +562,8 @@ def export_artifacts(base: Path) -> Path:
         "supervisor_plan.md",
         "supervisor_runs.jsonl",
         "supervisor_runs.md",
+        "supervisor_feedback.json",
+        "supervisor_feedback.md",
         "llm_drafts.json",
         "llm_drafts.md",
         "revision_provenance.json",
