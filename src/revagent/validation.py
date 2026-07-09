@@ -40,7 +40,7 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
     for name in SCHEMA_FILES:
         if not (config.workspace / name).exists():
             issues.append(f"missing workspace file: {name}")
-    for name in ("review_items.json", "latex_index.json", "journal_profile.json", "candidate_edits.json", "proof_workflows.json", "experiment_manifests.json", "agent_state.json", "agent_policy.json", "agent_decisions.json", "agent_eval_report.json", "llm_drafts.json", "review_analyses.json", "revision_provenance.json", "revision_readiness.json"):
+    for name in ("review_items.json", "latex_index.json", "journal_profile.json", "candidate_edits.json", "proof_workflows.json", "experiment_manifests.json", "agent_state.json", "agent_policy.json", "agent_decisions.json", "agent_eval_report.json", "llm_drafts.json", "review_analyses.json", "revision_provenance.json", "revision_memory.json", "revision_readiness.json"):
         try:
             read_json(config.workspace / name, {})
         except json.JSONDecodeError as exc:
@@ -63,6 +63,7 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
                 warnings.append(f"agent_runs.jsonl line {index} has no dependency metadata")
     external_runs = config.workspace / "external_agent_runs.jsonl"
     if external_runs.exists():
+        valid_external_statuses = {"dry_run", "queued", "running", "done", "failed", "canceled", "invalid"}
         for index, line in enumerate(read_text(external_runs).splitlines(), start=1):
             if not line.strip():
                 continue
@@ -75,6 +76,23 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
                 warnings.append(f"external_agent_runs.jsonl line {index} has no backend")
             if not record.get("prompt_path"):
                 warnings.append(f"external_agent_runs.jsonl line {index} has no prompt_path")
+            elif not Path(str(record.get("prompt_path"))).exists():
+                warnings.append(f"external_agent_runs.jsonl line {index} prompt_path is missing")
+            if record.get("status") not in valid_external_statuses:
+                warnings.append(f"external_agent_runs.jsonl line {index} has invalid status {record.get('status')}")
+            if record.get("status") == "queued":
+                launch = str(record.get("launch_script", ""))
+                if not launch:
+                    warnings.append(f"external_agent_runs.jsonl line {index} queued run has no launch_script")
+                elif not Path(launch).exists():
+                    warnings.append(f"external_agent_runs.jsonl line {index} launch_script is missing")
+            if record.get("status") == "done":
+                for key in ("stdout_path", "stderr_path"):
+                    value = str(record.get(key, ""))
+                    if value and not Path(value).exists():
+                        warnings.append(f"external_agent_runs.jsonl line {index} {key} is missing")
+            if record.get("operator_note") and not record.get("marked_at"):
+                warnings.append(f"external_agent_runs.jsonl line {index} has operator_note without marked_at")
     experiment_attempts_path = config.workspace / "experiment_run_attempts.jsonl"
     if experiment_attempts_path.exists():
         for index, line in enumerate(read_text(experiment_attempts_path).splitlines(), start=1):
@@ -139,6 +157,10 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
                 warnings.append("agent_eval_report.json fixtures field must be a list")
     if (config.workspace / "revision_provenance.json").exists() and (config.workspace / "revision_provenance.md").exists() and provenance_missing_or_stale(config):
         warnings.append("revision provenance is stale; run revagent provenance")
+    from .memory import memory_missing_or_stale
+
+    if memory_missing_or_stale(config):
+        warnings.append("revision memory is missing or stale; run revagent memory")
     from .readiness import readiness_missing_or_stale
 
     if readiness_missing_or_stale(config):

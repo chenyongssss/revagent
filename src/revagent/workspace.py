@@ -164,6 +164,9 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     from .provenance import write_revision_provenance
 
     write_revision_provenance(base)
+    from .memory import write_revision_memory
+
+    write_revision_memory(base)
     readiness_default = {
         "generated_at": "",
         "schema_version": READINESS_SCHEMA_VERSION,
@@ -221,6 +224,8 @@ def schema_markdown() -> str:
             "- `llm_drafts.md`: reviewable rendering of LLM drafts, author review notes, and quality issues. Entries are never auto-approved or auto-applied.",
             "- `revision_provenance.json`: generated per-item provenance snapshot linking reviewer comments, LLM drafts, candidates, proof/experiment gates, and apply records.",
             "- `revision_provenance.md`: reviewable rendering of the revision provenance snapshot.",
+            "- `revision_memory.json`: generated durable facts for agent grounding.",
+            "- `revision_memory.md`: reviewable rendering of revision memory facts.",
             "- `revision_readiness.json`: generated per-item readiness snapshot for submission gating.",
             "- `revision_readiness.md`: reviewable rendering of blockers, ready items, and submit-pack gaps.",
             "- `candidate_edits.json`: proposed/edited/approved/rejected/blocked/applied manuscript edits with safe patch operations.",
@@ -290,6 +295,8 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "llm_drafts.md": "# LLM Drafts\n\nNo LLM drafts generated yet.\n",
         "revision_provenance.json": {"version": 1, "generated_at": "", "source_fingerprint": "", "items": []},
         "revision_provenance.md": "# Revision Provenance\n\nNo review items recorded.\n",
+        "revision_memory.json": {"version": 1, "generated_at": "", "source_fingerprint": "", "facts": []},
+        "revision_memory.md": "# Revision Memory\n\nNo review memory facts recorded.\n",
         "revision_readiness.json": {
             "generated_at": "",
             "schema_version": READINESS_SCHEMA_VERSION,
@@ -435,6 +442,14 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         if not dry_run:
             write_revision_provenance(base)
             changed = True
+    memory_missing = not (config.workspace / "revision_memory.json").exists() or not (config.workspace / "revision_memory.md").exists()
+    if memory_missing:
+        actions.append("refresh revision memory facts")
+        if not dry_run:
+            from .memory import write_revision_memory
+
+            write_revision_memory(base)
+            changed = True
 
     return {"dry_run": dry_run, "actions": actions, "changed": changed}
 
@@ -488,6 +503,9 @@ def export_artifacts(base: Path) -> Path:
     from .provenance import write_revision_provenance
 
     write_revision_provenance(base)
+    from .memory import write_revision_memory
+
+    write_revision_memory(base)
     artifact_dir = config.workspace / "artifacts"
     artifact_dir.mkdir(exist_ok=True)
     exports = [
@@ -526,6 +544,8 @@ def export_artifacts(base: Path) -> Path:
         "llm_drafts.md",
         "revision_provenance.json",
         "revision_provenance.md",
+        "revision_memory.json",
+        "revision_memory.md",
         "revision_readiness.json",
         "revision_readiness.md",
         "revision_plan.md",

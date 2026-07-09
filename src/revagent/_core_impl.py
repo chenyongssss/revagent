@@ -20,6 +20,7 @@ from .candidates import *  # noqa: F403
 from .llm import *  # noqa: F403
 from .rendering import *  # noqa: F403
 from .provenance import *  # noqa: F403
+from .memory import *  # noqa: F403
 from .readiness import *  # noqa: F403
 from .review_analysis import *  # noqa: F403
 from .external_agent import *  # noqa: F403

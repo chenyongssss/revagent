@@ -61,13 +61,25 @@ from .lanes import (
     reopen_item,
 )
 from .llm import draft_all_with_llm, draft_item_with_llm, llm_accept, llm_check, llm_check_all, llm_edit, llm_reject, llm_review, render_llm_drafts
+from .memory import memory_for_item
 from .provenance import provenance_for_item
 from .readiness import build_submit_pack_dry_run, render_revision_readiness, render_submit_pack_dry_run, write_revision_readiness
 from .review_analysis import analyze_all_review_items, analyze_review_item, render_review_analyses, review_analysis_for_item
 from .rendering import create_draft, incorporate_drafts
 from .reviews import create_plan, ingest_comments
 from .validation import doctor, validate_workspace
-from .external_agent import render_monitor_report, run_external_agent, write_dashboard_html, write_monitor_report
+from .external_agent import (
+    get_external_agent_run,
+    load_external_agent_runs,
+    mark_external_agent_run,
+    recover_external_agent_run,
+    render_external_agent_run_detail,
+    render_external_agent_runs,
+    render_monitor_report,
+    run_external_agent,
+    write_dashboard_html,
+    write_monitor_report,
+)
 from .workspace import (
     clean_workspace,
     export_artifacts,
@@ -190,6 +202,8 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--compile", action="store_true", help="Run the configured LaTeX compile command if available.")
     provenance = sub.add_parser("provenance", help="Generate and show revision provenance.")
     provenance.add_argument("item_id", nargs="?")
+    memory = sub.add_parser("memory", help="Generate and show durable revision memory facts.")
+    memory.add_argument("item_id", nargs="?")
     readiness = sub.add_parser("readiness", help="Generate and show revision readiness.")
     readiness.add_argument("item_id", nargs="?")
     submit_pack = sub.add_parser("submit-pack", help="Inspect final submission package readiness.")
@@ -202,8 +216,18 @@ def build_parser() -> argparse.ArgumentParser:
     external_run.add_argument("--goal", default="", help="Goal prompt for the external agent.")
     external_run.add_argument("--backend", default="codex", choices=["codex"], help="External agent backend.")
     external_run.add_argument("--dry-run", action="store_true", help="Write and print the prompt without launching the backend.")
+    external_run.add_argument("--detach", action="store_true", help="Queue a launch script instead of running the backend immediately.")
     external_run.add_argument("--limit", type=int, default=None, help="Task limit hint included in the generated prompt.")
     external_run.add_argument("--dangerous-autonomy", action="store_true", help="Allow prompt instructions for broader autonomy; still records the run.")
+    run_status = sub.add_parser("run-status", help="Show external agent run history or one run.")
+    run_status.add_argument("run_id", nargs="?")
+    run_recover = sub.add_parser("run-recover", help="Recover a failed or interrupted external agent run.")
+    run_recover.add_argument("run_id", nargs="?")
+    run_recover.add_argument("--dry-run", action="store_true", help="Regenerate the recovery prompt without launching the backend.")
+    run_mark = sub.add_parser("run-mark", help="Manually mark an external agent run done, failed, or canceled.")
+    run_mark.add_argument("run_id")
+    run_mark.add_argument("--status", required=True, choices=["done", "failed", "canceled"])
+    run_mark.add_argument("--note", default="")
     agent_plan = sub.add_parser("agent-plan", help="Create a goal-oriented agent session plan.")
     agent_plan.add_argument("--goal", required=True, choices=["rebuttal-draft", "proof-response", "experiment-response", "full-revision-pass"])
     sub.add_parser("agent-session", help="Show recorded goal-oriented agent sessions.")
@@ -556,6 +580,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}")
             return 1
         return 0
+    if args.command == "memory":
+        try:
+            print(memory_for_item(base, args.item_id), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
     if args.command == "readiness":
         try:
             readiness_report = write_revision_readiness(base)
@@ -596,7 +627,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "run":
         try:
-            result = run_external_agent(base, backend=args.backend, goal=args.goal, dry_run=args.dry_run, limit=args.limit, dangerous_autonomy=args.dangerous_autonomy)
+            result = run_external_agent(base, backend=args.backend, goal=args.goal, dry_run=args.dry_run, detach=args.detach, limit=args.limit, dangerous_autonomy=args.dangerous_autonomy)
         except ValueError as exc:
             print(f"error: {exc}")
             return 1
@@ -608,9 +639,45 @@ def main(argv: list[str] | None = None) -> int:
             print(f"stdout: {result['stdout_path']}")
         if result.get("stderr_path"):
             print(f"stderr: {result['stderr_path']}")
+        if result.get("launch_script"):
+            print(f"launch: {result['launch_script']}")
         if result.get("error"):
             print(f"error: {result['error']}")
-        return 0 if result.get("status") == "done" else 1
+        return 0 if result.get("status") in {"done", "queued"} else 1
+    if args.command == "run-status":
+        config = load_config(base)
+        try:
+            if args.run_id:
+                print(render_external_agent_run_detail(get_external_agent_run(config, args.run_id)), end="")
+            else:
+                print(render_external_agent_runs(load_external_agent_runs(config)), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "run-recover":
+        try:
+            result = recover_external_agent_run(base, run_id=args.run_id, dry_run=args.dry_run)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        if args.dry_run:
+            print(result.get("prompt", ""), end="")
+            return 0
+        print(f"external agent recovery {result.get('status')} backend={result.get('backend')} prompt={result.get('prompt_path')}")
+        if result.get("launch_script"):
+            print(f"launch: {result['launch_script']}")
+        if result.get("error"):
+            print(f"error: {result['error']}")
+        return 0 if result.get("status") in {"done", "queued"} else 1
+    if args.command == "run-mark":
+        try:
+            result = mark_external_agent_run(base, args.run_id, args.status, note=args.note)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(render_external_agent_run_detail(result), end="")
+        return 0
     if args.command == "agent-plan":
         try:
             session = plan_agent_session(base, args.goal)

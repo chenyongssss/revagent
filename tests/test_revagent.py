@@ -45,6 +45,7 @@ from revagent.core import (
     load_candidates,
     load_experiment_run_attempts,
     load_llm_drafts,
+    build_revision_memory,
     plan_all_items,
     plan_item,
     propose_candidates,
@@ -61,9 +62,11 @@ from revagent.core import (
     render_revision_readiness,
     render_submit_pack_dry_run,
     render_revision_provenance,
+    render_revision_memory,
     run_external_agent,
     run_agent_once,
     write_dashboard_html,
+    write_revision_memory,
     write_revision_readiness,
     build_submit_pack_dry_run,
     load_agent_decisions,
@@ -839,6 +842,36 @@ def test_revision_provenance_stale_detection_validate_and_agent(tmp_path: Path) 
     assert not any("revision provenance is stale" in warning for warning in refreshed["warnings"])
 
 
+def test_revision_memory_builds_facts_cli_and_export(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    analyze_all_review_items(tmp_path)
+    plan_all_items(tmp_path)
+    proof_plan_for_item(tmp_path, "R001")
+    create_draft(tmp_path)
+
+    memory = write_revision_memory(tmp_path)
+    fact = next(item for item in memory["facts"] if item["item_id"] == "R001")
+    assert fact["kind"] == "proof"
+    assert fact["readiness_status"] == "blocked_manual"
+    assert "author proof approval" in fact["manual_actions"]
+    assert fact["next_command"].startswith("revagent proof-approve R001")
+    assert "R001" in render_revision_memory(memory, "R001")
+    assert build_revision_memory(tmp_path)["summary_counts"]
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["memory"]) == 0
+    assert main(["memory", "R001"]) == 0
+    assert main(["memory", "R999"]) == 1
+    assert "Revision Memory" in (tmp_path / ".revagent" / "revision_memory.md").read_text(encoding="utf-8")
+
+    artifact_dir = export_artifacts(tmp_path)
+    assert (artifact_dir / "revision_memory.json").exists()
+    assert (artifact_dir / "revision_memory.md").exists()
+
+
 def test_openai_compatible_provider_env_validation_and_mock_response(tmp_path: Path, monkeypatch) -> None:
     write_demo_project(tmp_path)
     init_workspace(tmp_path, "siam", ".", "paper.tex")
@@ -1285,6 +1318,8 @@ def test_workspace_migration_dry_run_and_apply(tmp_path: Path, monkeypatch) -> N
     assert (tmp_path / ".revagent" / "review_analyses.md").exists()
     assert (tmp_path / ".revagent" / "revision_provenance.json").exists()
     assert (tmp_path / ".revagent" / "revision_provenance.md").exists()
+    assert (tmp_path / ".revagent" / "revision_memory.json").exists()
+    assert (tmp_path / ".revagent" / "revision_memory.md").exists()
     migrated_draft = json.loads((tmp_path / ".revagent" / "llm_drafts.json").read_text(encoding="utf-8"))["R001"]
     assert migrated_draft["review_status"] == "drafted"
     assert migrated_draft["quality_status"] == "unchecked"
@@ -1323,6 +1358,8 @@ def test_agent_state_files_created_on_init(tmp_path: Path) -> None:
     assert (tmp_path / ".revagent" / "review_analyses.md").exists()
     assert (tmp_path / ".revagent" / "revision_provenance.json").exists()
     assert (tmp_path / ".revagent" / "revision_provenance.md").exists()
+    assert (tmp_path / ".revagent" / "revision_memory.json").exists()
+    assert (tmp_path / ".revagent" / "revision_memory.md").exists()
     assert not provenance_missing_or_stale(load_config(tmp_path))
     state = json.loads((tmp_path / ".revagent" / "agent_state.json").read_text(encoding="utf-8"))
     assert state["tasks"] == []
@@ -1463,7 +1500,8 @@ def test_external_agent_dry_run_writes_prompt_and_static_dashboard(tmp_path: Pat
     assert "First, read `plan.md`" in prompt
     assert "continue phase one" in prompt
     assert "Do not approve proof workflows." in prompt
-    assert "RevAgent Iteris-Style Phase 1 Plan" in prompt
+    assert "RevAgent Iteris-Style Roadmap" in prompt
+    assert "Current revision memory:" in prompt
     assert load_external_agent_runs(load_config(tmp_path)) == []
 
     assert main(["dashboard"]) == 0
@@ -1472,12 +1510,14 @@ def test_external_agent_dry_run_writes_prompt_and_static_dashboard(tmp_path: Pat
     html = dashboard.read_text(encoding="utf-8")
     assert "RevAgent Dashboard" in html
     assert "Manual Decisions" in html
+    assert "Revision Memory" in html
     assert "Recent External Runs" in html
 
 
 def test_external_agent_run_records_ledger_and_logs(tmp_path: Path, monkeypatch) -> None:
     write_demo_project(tmp_path)
     init_workspace(tmp_path, "siam", ".", "paper.tex")
+    monkeypatch.chdir(tmp_path)
 
     class FakeCompleted:
         returncode = 0
@@ -1505,6 +1545,52 @@ def test_external_agent_run_records_ledger_and_logs(tmp_path: Path, monkeypatch)
     assert Path(runs[0]["stdout_path"]).read_text(encoding="utf-8") == "agent stdout"
     assert Path(runs[0]["stderr_path"]).read_text(encoding="utf-8") == "agent stderr"
     assert "External Agent Runs" in (tmp_path / ".revagent" / "external_agent_runs.md").read_text(encoding="utf-8")
+    assert main(["run-status"]) == 0
+    assert main(["run-status", runs[0]["run_id"]]) == 0
+
+
+def test_external_agent_run_recover_dry_run_reuses_previous_request(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    monkeypatch.setattr("revagent.external_agent.codex_command", lambda: None)
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["run", "--goal", "recover me"]) == 1
+    runs = load_external_agent_runs(load_config(tmp_path))
+    assert len(runs) == 1
+    assert runs[0]["status"] == "failed"
+    assert "not found" in runs[0]["error"]
+
+    assert main(["run-recover", "--dry-run"]) == 0
+    after = load_external_agent_runs(load_config(tmp_path))
+    assert after == runs
+    prompts = sorted((tmp_path / ".revagent" / "prompts").glob("external-agent-*.md"))
+    assert "recover me" in prompts[-1].read_text(encoding="utf-8")
+
+
+def test_external_agent_run_detach_writes_launch_script_and_queued_record(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    monkeypatch.setattr("revagent.external_agent.codex_command", lambda: "codex")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["run", "--goal", "queued work", "--detach"]) == 0
+    runs = load_external_agent_runs(load_config(tmp_path))
+    assert len(runs) == 1
+    assert runs[0]["status"] == "queued"
+    assert runs[0]["goal"] == "queued work"
+    launch = Path(runs[0]["launch_script"])
+    assert launch.exists()
+    assert "codex" in launch.read_text(encoding="utf-8")
+
+    assert main(["run-status", runs[0]["run_id"]]) == 0
+    assert main(["run-recover", runs[0]["run_id"], "--dry-run"]) == 0
+    assert len(load_external_agent_runs(load_config(tmp_path))) == 1
+    assert main(["run-mark", runs[0]["run_id"], "--status", "done", "--note", "Finished from launch script."]) == 0
+    marked = load_external_agent_runs(load_config(tmp_path))[0]
+    assert marked["status"] == "done"
+    assert marked["operator_note"] == "Finished from launch script."
+    assert main(["run-mark", "missing", "--status", "canceled"]) == 1
 
 
 def test_codex_command_prefers_cmd_shim_on_windows(monkeypatch) -> None:
@@ -1536,6 +1622,7 @@ def test_monitor_recommends_manual_recovery_and_writes_report(tmp_path: Path, mo
     assert "RevAgent Monitor" in monitor
     assert "Codex CLI: missing" in monitor
     assert "Recommendation" in monitor
+    assert "External Agent" in monitor
     assert "revagent proof-approve" in monitor or "revagent experiment-artifact" in monitor or "revagent llm-review" in monitor
     assert (tmp_path / ".revagent" / "dashboard" / "index.html").exists()
 
@@ -1711,6 +1798,36 @@ def test_validate_warns_on_malformed_agent_run_ledger(tmp_path: Path) -> None:
     assert any("experiment_run_attempts.jsonl" in warning for warning in validation["warnings"])
 
 
+def test_validate_warns_on_invalid_external_agent_runs(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    (tmp_path / ".revagent" / "external_agent_runs.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "E001",
+                "backend": "codex",
+                "status": "queued",
+                "prompt_path": str(tmp_path / ".revagent" / "missing-prompt.md"),
+                "launch_script": str(tmp_path / ".revagent" / "missing.cmd"),
+                "operator_note": "marked without timestamp",
+            },
+            sort_keys=True,
+        )
+        + "\n"
+        + json.dumps({"run_id": "E002", "backend": "codex", "status": "bogus", "prompt_path": ""}, sort_keys=True)
+        + "\n{bad\n",
+        encoding="utf-8",
+    )
+
+    validation = validate_workspace(tmp_path)
+    assert validation["ok"]
+    assert any("prompt_path is missing" in warning for warning in validation["warnings"])
+    assert any("launch_script is missing" in warning for warning in validation["warnings"])
+    assert any("operator_note without marked_at" in warning for warning in validation["warnings"])
+    assert any("invalid status bogus" in warning for warning in validation["warnings"])
+    assert any("invalid JSONL in external_agent_runs.jsonl" in warning for warning in validation["warnings"])
+
+
 def test_agent_run_until_blocked_converges_and_blocks_author_decisions(tmp_path: Path, monkeypatch) -> None:
     write_demo_project(tmp_path)
     init_workspace(tmp_path, "siam", ".", "paper.tex")
@@ -1762,7 +1879,7 @@ def test_public_subsystem_modules_expose_stable_boundaries(tmp_path: Path) -> No
     write_demo_project(tmp_path)
     graph = discover_tex_graph(tmp_path, "paper.tex")
     assert graph["root_file"] == "paper.tex"
-    from revagent import agent, candidates, core, experiments, external_agent, latex, llm, planning, proofs, provenance, rendering, review_analysis, reviews, validation, workspace
+    from revagent import agent, candidates, core, experiments, external_agent, latex, llm, memory, planning, proofs, provenance, rendering, review_analysis, reviews, validation, workspace
 
     assert agent.build_agent_state is build_agent_state
     assert workspace.init_workspace is init_workspace
@@ -1778,6 +1895,7 @@ def test_public_subsystem_modules_expose_stable_boundaries(tmp_path: Path) -> No
     assert rendering.create_draft is create_draft
     assert rendering.incorporate_drafts is incorporate_drafts
     assert provenance.write_revision_provenance is write_revision_provenance
+    assert memory.write_revision_memory is write_revision_memory
     assert review_analysis.analyze_review_item is analyze_review_item
     assert external_agent.run_external_agent is run_external_agent
     assert validation.validate_workspace is validate_workspace
@@ -1785,9 +1903,10 @@ def test_public_subsystem_modules_expose_stable_boundaries(tmp_path: Path) -> No
     assert core.draft_all_with_llm is draft_all_with_llm
     assert core.analyze_review_item is analyze_review_item
     assert core.write_revision_provenance is write_revision_provenance
+    assert core.write_revision_memory is write_revision_memory
     assert core.proof_plan_for_item is proof_plan_for_item
 
-    for module in (agent, candidates, experiments, external_agent, latex, llm, planning, proofs, provenance, rendering, review_analysis, reviews, validation, workspace):
+    for module in (agent, candidates, experiments, external_agent, latex, llm, memory, planning, proofs, provenance, rendering, review_analysis, reviews, validation, workspace):
         source = Path(module.__file__).read_text(encoding="utf-8")
         assert "._core_impl" not in source
     assert "._core_impl" not in Path(core.__file__).read_text(encoding="utf-8")

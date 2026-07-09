@@ -50,9 +50,14 @@ revagent apply --approved
 revagent restore --backup .revagent/backups/20260101T000000Z
 revagent close-item R003
 revagent provenance
+revagent memory
 revagent agent-status
 revagent monitor
 revagent run --dry-run
+revagent run --detach
+revagent run-status
+revagent run-recover --dry-run
+revagent run-mark RUN_ID --status done --note "Finished from launch script."
 revagent dashboard
 revagent agent-plan --goal rebuttal-draft
 revagent agent-session
@@ -118,6 +123,8 @@ run experiments.
 - `llm_drafts.md`: reviewable rendering of LLM drafts, review notes, and quality issues; these are never auto-approved or auto-applied.
 - `revision_provenance.json`: per-item provenance snapshot linking reviewer comments, LLM drafts, candidates, proof/experiment gates, and apply records.
 - `revision_provenance.md`: reviewable provenance report.
+- `revision_memory.json`: generated durable facts for external-agent grounding.
+- `revision_memory.md`: reviewable memory facts with blockers and next commands.
 - `revision_readiness.json`: per-item revision readiness status, blockers, and submit-pack gaps.
 - `revision_readiness.md`: reviewable readiness report grouped by blockers and ready items.
 
@@ -161,13 +168,17 @@ run experiments.
 - `revagent apply --approved`: write approved candidate insertions after backing up touched files.
 - `revagent restore --backup path`: restore TeX files from a RevAgent backup directory.
 - `revagent provenance [R001]`: generate and show end-to-end revision provenance for all items or one item.
+- `revagent memory [R001]`: generate and show durable revision memory facts for all items or one item.
 - `revagent readiness [R001]`: refresh and show revision readiness for all items or one item.
 - `revagent submit-pack --dry-run`: summarize missing response-letter, TeX, validation, manual-gate, and blocker pieces before final submission.
 - `revagent validate [--compile]`: validate schema, LaTeX references, and optionally run `latexmk`.
 - `revagent status`: show item counts and workspace configuration.
 - `revagent agent-status`: build and print the safe-auto agent task queue without executing tasks.
 - `revagent monitor`: refresh state and print environment checks, blockers, and the next recovery command.
-- `revagent run [--goal text] [--backend codex] [--dry-run] [--limit N] [--dangerous-autonomy]`: generate a RevAgent-aware prompt and optionally launch the external Codex runner. By default, the prompt preserves RevAgent manual safety gates.
+- `revagent run [--goal text] [--backend codex] [--dry-run] [--detach] [--limit N] [--dangerous-autonomy]`: generate a RevAgent-aware prompt and optionally launch the external Codex runner. `--detach` writes a launch script and records a queued run without starting a background daemon. By default, the prompt preserves RevAgent manual safety gates.
+- `revagent run-status [RUN_ID]`: show external agent run history or one run with recovery hints.
+- `revagent run-recover [RUN_ID] [--dry-run]`: regenerate or rerun a previous external agent request using the same backend, goal, and autonomy setting.
+- `revagent run-mark RUN_ID --status done|failed|canceled [--note text]`: manually update a queued external run after running its launch script.
 - `revagent dashboard`: write `.revagent/dashboard/index.html` with the current agent, lane, readiness, decision, and run state.
 - `revagent agent-plan --goal rebuttal-draft|proof-response|experiment-response|full-revision-pass`: create a goal-oriented agent session.
 - `revagent agent-session`: show recorded agent sessions.

@@ -23,9 +23,11 @@ from .agent import (
     write_agent_report,
     write_agent_state,
 )
+from .memory import build_revision_memory, render_revision_memory, write_revision_memory
 from .readiness import write_revision_readiness
 
 EXTERNAL_BACKENDS = {"codex"}
+EXTERNAL_RUN_MARK_STATUSES = {"done", "failed", "canceled"}
 
 
 def external_agent_runs_path(config: Config) -> Path:
@@ -82,6 +84,96 @@ def append_external_agent_run(config: Config, record: dict[str, object]) -> None
     write_external_agent_runs(config, runs)
 
 
+def get_external_agent_run(config: Config, run_id: str | None = None) -> dict[str, object]:
+    runs = load_external_agent_runs(config)
+    if not runs:
+        raise ValueError("no external agent runs recorded")
+    if not run_id:
+        return runs[-1]
+    for run in runs:
+        if str(run.get("run_id", "")) == run_id:
+            return run
+    raise ValueError(f"unknown external agent run {run_id}")
+
+
+def mark_external_agent_run(base: Path, run_id: str, status: str, note: str = "") -> dict[str, object]:
+    if status not in EXTERNAL_RUN_MARK_STATUSES:
+        raise ValueError(f"invalid external run status {status}; choose one of {', '.join(sorted(EXTERNAL_RUN_MARK_STATUSES))}")
+    config = load_config(base)
+    runs = load_external_agent_runs(config)
+    if not runs:
+        raise ValueError("no external agent runs recorded")
+    updated: dict[str, object] | None = None
+    for run in runs:
+        if str(run.get("run_id", "")) == run_id:
+            run["status"] = status
+            run["marked_at"] = now_iso()
+            run["operator_note"] = note
+            if status == "failed" and note and not run.get("error"):
+                run["error"] = note
+            if status in {"done", "failed", "canceled"} and not run.get("finished_at"):
+                run["finished_at"] = now_iso()
+            updated = run
+            break
+    if updated is None:
+        raise ValueError(f"unknown external agent run {run_id}")
+    write_external_agent_runs(config, runs)
+    return updated
+
+
+def external_run_recovery_hint(run: dict[str, object]) -> str:
+    status = str(run.get("status", ""))
+    if status == "queued":
+        return f"run launch script `{run.get('launch_script', '')}` or use `revagent run-recover`"
+    if status == "failed":
+        if "not found" in str(run.get("error", "")).lower():
+            return "install or fix the backend command, then run `revagent run-recover`"
+        return "inspect stdout/stderr logs, then run `revagent run-recover`"
+    if status == "running":
+        return "check whether the external process is still active; if not, run `revagent run-recover`"
+    if status == "dry_run":
+        return "review the prompt, then run `revagent run`"
+    return "no recovery needed"
+
+
+def render_external_agent_run_detail(run: dict[str, object]) -> str:
+    lines = [
+        "# External Agent Run",
+        "",
+        f"- Run: `{run.get('run_id', '')}`",
+        f"- Status: {run.get('status', '')}",
+        f"- Backend: {run.get('backend', '')}",
+        f"- Goal: {run.get('goal', '') or 'none'}",
+        f"- Dangerous autonomy: {str(run.get('dangerous_autonomy', False)).lower()}",
+        f"- Prompt: `{run.get('prompt_path', '')}`",
+        f"- Stdout: `{run.get('stdout_path', '')}`",
+        f"- Stderr: `{run.get('stderr_path', '')}`",
+        f"- Launch script: `{run.get('launch_script', '')}`",
+        f"- Error: {run.get('error', '') or 'none'}",
+        f"- Operator note: {run.get('operator_note', '') or 'none'}",
+        f"- Recovery: {external_run_recovery_hint(run)}",
+    ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def recover_external_agent_run(
+    base: Path,
+    *,
+    run_id: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, object]:
+    config = load_config(base)
+    previous = get_external_agent_run(config, run_id)
+    return run_external_agent(
+        base,
+        backend=str(previous.get("backend", "codex") or "codex"),
+        goal=str(previous.get("goal", "")),
+        dry_run=dry_run,
+        detach=bool(previous.get("status") == "queued") and not dry_run,
+        dangerous_autonomy=bool(previous.get("dangerous_autonomy", False)),
+    )
+
+
 def codex_command() -> str | None:
     if os.name == "nt":
         cmd = shutil.which("codex.cmd")
@@ -128,6 +220,7 @@ def forbidden_actions(dangerous_autonomy: bool) -> list[str]:
 def build_external_agent_prompt(base: Path, *, goal: str = "", limit: int | None = None, dangerous_autonomy: bool = False) -> str:
     config = load_config(base)
     dashboard = build_agent_dashboard(base)
+    memory = build_revision_memory(base)
     state = build_agent_state(base)
     next_text = render_agent_next(state).strip()
     repo_plan = Path(__file__).resolve().parents[2] / "plan.md"
@@ -158,6 +251,9 @@ def build_external_agent_prompt(base: Path, *, goal: str = "", limit: int | None
         "Current dashboard summary:",
         render_agent_dashboard(dashboard),
         "",
+        "Current revision memory:",
+        render_revision_memory(memory)[:5000],
+        "",
         "Current plan.md excerpt:",
         plan_excerpt,
         "",
@@ -175,12 +271,34 @@ def write_external_agent_prompt(base: Path, prompt: str) -> Path:
     return path
 
 
+def shell_quote(value: str) -> str:
+    return '"' + value.replace('"', '\\"') + '"'
+
+
+def write_external_launch_script(base: Path, record: dict[str, object], prompt_path: Path) -> Path:
+    config = load_config(base)
+    runners = config.workspace / "runners"
+    runners.mkdir(parents=True, exist_ok=True)
+    safe_run_id = str(record["run_id"]).replace(":", "").replace("+", "Z")
+    backend = str(record.get("backend", "codex"))
+    command = str(record.get("command") or backend)
+    if os.name == "nt":
+        script = runners / f"external-agent-{safe_run_id}.cmd"
+        text = "\n".join(["@echo off", "setlocal", f"cd /d {shell_quote(str(base))}", f"{shell_quote(command)} < {shell_quote(str(prompt_path))}", ""])
+    else:
+        script = runners / f"external-agent-{safe_run_id}.sh"
+        text = "\n".join(["#!/usr/bin/env sh", "set -eu", f"cd {shell_quote(str(base))}", f"{shell_quote(command)} < {shell_quote(str(prompt_path))}", ""])
+    write_text(script, text)
+    return script
+
+
 def run_external_agent(
     base: Path,
     *,
     backend: str = "codex",
     goal: str = "",
     dry_run: bool = False,
+    detach: bool = False,
     limit: int | None = None,
     dangerous_autonomy: bool = False,
 ) -> dict[str, object]:
@@ -204,11 +322,19 @@ def run_external_agent(
         "exit_code": None,
         "stdout_path": "",
         "stderr_path": "",
+        "launch_script": "",
         "error": "",
     }
     if dry_run:
         record["finished_at"] = now_iso()
         return {**record, "prompt": prompt}
+    if detach:
+        script = write_external_launch_script(base, record, prompt_path)
+        record["status"] = "queued"
+        record["finished_at"] = now_iso()
+        record["launch_script"] = str(script)
+        append_external_agent_run(config, record)
+        return record
     if not command_path:
         record["status"] = "failed"
         record["finished_at"] = now_iso()
@@ -269,6 +395,7 @@ def recommended_monitor_command(report: dict[str, object], codex_ok: bool, has_s
 def build_monitor_report(base: Path) -> dict[str, object]:
     config = load_config(base)
     write_revision_readiness(base)
+    write_revision_memory(base)
     state = build_agent_state(base)
     write_agent_state(config, state)
     report = write_agent_report(base)
@@ -277,6 +404,8 @@ def build_monitor_report(base: Path) -> dict[str, object]:
     codex_ok = backend_available("codex")
     session = dashboard.get("session") or {}
     command, reason = recommended_monitor_command(report, codex_ok, bool(session))
+    external_runs = load_external_agent_runs(config)
+    latest_external = external_runs[-1] if external_runs else {}
     return {
         "version": 1,
         "generated_at": now_iso(),
@@ -291,6 +420,8 @@ def build_monitor_report(base: Path) -> dict[str, object]:
         "recommended_command": command,
         "recommendation_reason": reason,
         "dashboard_path": str(config.workspace / "dashboard" / "index.html"),
+        "latest_external_run": latest_external,
+        "latest_external_recovery": external_run_recovery_hint(latest_external) if latest_external else "none",
     }
 
 
@@ -310,6 +441,13 @@ def render_monitor_report(monitor: dict[str, object]) -> str:
     lines.append(f"- Reason: {monitor.get('recommendation_reason', '')}")
     lines.append(f"- Command: `{monitor.get('recommended_command', '')}`")
     lines.append(f"- Dashboard: `{monitor.get('dashboard_path', '')}`")
+    latest_external = monitor.get("latest_external_run") or {}
+    lines.extend(["", "## External Agent", ""])
+    if latest_external:
+        lines.append(f"- Latest: `{latest_external.get('run_id', '')}` {latest_external.get('status', '')}")
+        lines.append(f"- Recovery: {monitor.get('latest_external_recovery', '')}")
+    else:
+        lines.append("- No external agent runs recorded.")
     decisions = monitor.get("manual_decisions", [])
     lines.extend(["", "## Manual Decisions", ""])
     if decisions:
@@ -354,6 +492,8 @@ def render_dashboard_html(dashboard: dict[str, object], external_runs: list[dict
     stale = dashboard.get("stale_tasks", [])
     recent = dashboard.get("recent_runs", [])
     session = dashboard.get("session") or {}
+    workspace = Path(str(dashboard.get("workspace", ""))) if dashboard.get("workspace") else None
+    memory = build_revision_memory(workspace.parent) if workspace else {"facts": []}
 
     def task_list(entries: list[dict[str, object]], empty: str) -> str:
         if not entries:
@@ -380,6 +520,11 @@ def render_dashboard_html(dashboard: dict[str, object], external_runs: list[dict
         f"{html.escape(', '.join(blocker.get('missing_inputs', []) or blocker.get('manual_actions', [])))}</li>"
         for blocker in blockers
     ) or "<li>No readiness blockers.</li>"
+    memory_items = "".join(
+        f"<li><strong>{html.escape(str(fact.get('item_id', '')))}</strong> {html.escape(str(fact.get('readiness_status', '')))}<br>"
+        f"<code>{html.escape(str(fact.get('next_command', '')))}</code></li>"
+        for fact in list(memory.get("facts", []))[:8]
+    ) or "<li>No memory facts.</li>"
 
     return f"""<!doctype html>
 <html lang="en">
@@ -411,6 +556,7 @@ def render_dashboard_html(dashboard: dict[str, object], external_runs: list[dict
     <section><h2>Review Progress</h2><p>Items: {review.get('total', 0)} high risk: {review.get('high_risk', 0)} analysis: {review.get('analysis_ready', 0)}/{review.get('total', 0)}</p><div class="metric">{html_count_map(review.get('by_kind', {}))}</div></section>
     <section><h2>Lanes</h2><p>Proof</p><div class="metric">{html_count_map(lanes.get('proof', {}))}</div><p>Experiment</p><div class="metric">{html_count_map(lanes.get('experiment', {}))}</div><p>Manuscript</p><div class="metric">{html_count_map(lanes.get('manuscript', {}))}</div></section>
     <section><h2>Readiness</h2><p>Overall: {html.escape(str(readiness.get('overall_status', '')))} score: {readiness.get('score', 0)}%</p><ul>{blocker_items}</ul></section>
+    <section><h2>Revision Memory</h2><ul>{memory_items}</ul></section>
     <section><h2>Manual Decisions</h2>{task_list(decisions, 'No manual decisions.')}</section>
     <section><h2>Failed Tasks</h2>{task_list(failed, 'No failed tasks.')}</section>
     <section><h2>Stale Tasks</h2>{task_list(stale, 'No stale tasks.')}</section>
@@ -434,8 +580,12 @@ __all__ = [
     "build_external_agent_prompt",
     "build_monitor_report",
     "load_external_agent_runs",
+    "get_external_agent_run",
+    "mark_external_agent_run",
+    "recover_external_agent_run",
     "render_dashboard_html",
     "render_external_agent_runs",
+    "render_external_agent_run_detail",
     "render_monitor_report",
     "run_external_agent",
     "write_dashboard_html",

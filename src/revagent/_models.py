@@ -43,6 +43,8 @@ SCHEMA_FILES = [
     "llm_drafts.md",
     "revision_provenance.json",
     "revision_provenance.md",
+    "revision_memory.json",
+    "revision_memory.md",
     "revision_readiness.json",
     "revision_readiness.md",
     "revision_plan.md",
