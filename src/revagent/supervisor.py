@@ -11,8 +11,11 @@ from ._utils import load_config, now_iso, read_json, read_text, write_json, writ
 from .agent import build_agent_state, run_agent_once, write_agent_state
 from .external_agent import (
     build_monitor_report,
+    build_external_agent_prompt,
     load_external_agent_runs,
     render_external_agent_supervision,
+    run_external_agent,
+    write_external_agent_prompt,
     write_dashboard_html,
     write_monitor_report,
 )
@@ -33,6 +36,10 @@ def supervisor_runs_path(config: Config) -> Path:
 
 def supervisor_feedback_path(config: Config) -> Path:
     return config.workspace / "supervisor_feedback.json"
+
+
+def supervisor_workers_path(config: Config) -> Path:
+    return config.workspace / "supervisor_workers.json"
 
 
 def repo_plan_path(base: Path) -> Path:
@@ -87,6 +94,24 @@ def phase_9_plan_block() -> str:
 """
 
 
+def phase_10_plan_block() -> str:
+    return """## Phase 10 Scope
+
+- Add conservative multi-worker orchestration:
+  - `revagent supervisor-workers [--workers N] [--queue]`
+- Split safe supervisor tasks into isolated external-worker prompts.
+- Default mode writes prompts and a worker plan only; it does not launch workers.
+- `--queue` may create queued external run launch scripts, but must not start background processes or weaken manual gates.
+- Workers must inherit the same forbidden actions as `revagent run`.
+
+## Phase 10 Test Plan
+
+- Verify `supervisor-workers` writes worker JSON/Markdown and prompt files without appending external runs.
+- Verify `supervisor-workers --queue` records queued external runs without starting them.
+- Verify worker prompts preserve manual safety gate restrictions.
+"""
+
+
 def maybe_update_plan_md(base: Path, phase: int = 8) -> Path:
     path = repo_plan_path(base)
     text = read_text(path) if path.exists() else "# RevAgent Iteris-Style Roadmap\n\n"
@@ -94,6 +119,8 @@ def maybe_update_plan_md(base: Path, phase: int = 8) -> Path:
         write_text(path, text.rstrip() + "\n\n" + phase_8_plan_block())
     if phase == 9 and not phase_present(text, 9):
         write_text(path, text.rstrip() + "\n\n" + phase_9_plan_block())
+    if phase == 10 and not phase_present(text, 10):
+        write_text(path, text.rstrip() + "\n\n" + phase_10_plan_block())
     return path
 
 
@@ -297,6 +324,76 @@ def feedback_summary(feedback: dict[str, object]) -> dict[str, object]:
         "latest_supervisor_status": feedback.get("latest_supervisor_status", ""),
         "top_recommendation": recommendations[0] if recommendations else {},
     }
+
+
+def worker_goal_for_task(task: dict[str, object], index: int) -> str:
+    return (
+        f"Supervisor worker {index}: inspect and advance only safe RevAgent task `{task.get('kind', '')}`. "
+        f"Suggested command: {task.get('command', '')}. "
+        "Do not approve manual gates, apply manuscript edits, accept LLM drafts, record experiments, or launch nested agents."
+    )
+
+
+def build_supervisor_workers(
+    base: Path,
+    *,
+    workers: int = 2,
+    queue: bool = False,
+    update_plan: bool = False,
+) -> dict[str, object]:
+    if workers <= 0:
+        raise ValueError("workers must be positive")
+    config = load_config(base)
+    if update_plan:
+        maybe_update_plan_md(base, 10)
+    plan = build_supervisor_plan(base)
+    safe_tasks = [task for task in plan.get("tasks", []) if task.get("safe_to_execute") and task.get("status") == "pending"]
+    assignments = []
+    for index, task in enumerate(safe_tasks[:workers], start=1):
+        goal = worker_goal_for_task(task, index)
+        if queue:
+            run = run_external_agent(base, goal=goal, detach=True)
+            prompt_path = str(run.get("prompt_path", ""))
+            external_run_id = str(run.get("run_id", ""))
+            launch_script = str(run.get("launch_script", ""))
+            status = "queued"
+        else:
+            prompt = build_external_agent_prompt(base, goal=goal, limit=1)
+            prompt_path = str(write_external_agent_prompt(base, prompt))
+            external_run_id = ""
+            launch_script = ""
+            status = "planned"
+        assignments.append(
+            {
+                "worker_id": f"W{index:03d}",
+                "task_id": task.get("id", ""),
+                "task_kind": task.get("kind", ""),
+                "goal": goal,
+                "status": status,
+                "prompt_path": prompt_path,
+                "external_run_id": external_run_id,
+                "launch_script": launch_script,
+                "safe_to_execute": True,
+            }
+        )
+    worker_plan = {
+        "version": 1,
+        "generated_at": now_iso(),
+        "queue": queue,
+        "requested_workers": workers,
+        "assigned_workers": len(assignments),
+        "assignments": assignments,
+        "blocked_tasks": [task for task in plan.get("tasks", []) if not task.get("safe_to_execute")],
+        "safety": {
+            "launches_processes": False,
+            "queues_only": bool(queue),
+            "approves_manual_gates": False,
+            "applies_candidate_edits": False,
+        },
+    }
+    write_json(supervisor_workers_path(config), worker_plan)
+    write_text(config.workspace / "supervisor_workers.md", render_supervisor_workers(worker_plan))
+    return worker_plan
 
 
 def build_supervisor_plan(base: Path, *, update_plan: bool = False) -> dict[str, object]:
@@ -519,6 +616,36 @@ def render_supervisor_feedback(feedback: dict[str, object]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def render_supervisor_workers(worker_plan: dict[str, object]) -> str:
+    lines = [
+        "# Supervisor Workers",
+        "",
+        f"- Generated at: {worker_plan.get('generated_at', '')}",
+        f"- Queue mode: {str(worker_plan.get('queue', False)).lower()}",
+        f"- Requested workers: {worker_plan.get('requested_workers', 0)}",
+        f"- Assigned workers: {worker_plan.get('assigned_workers', 0)}",
+        "",
+        "## Assignments",
+        "",
+    ]
+    assignments = worker_plan.get("assignments", [])
+    if not assignments:
+        lines.append("No safe worker assignments available.")
+    for assignment in assignments:
+        lines.append(f"- `{assignment.get('worker_id', '')}` {assignment.get('task_kind', '')} status={assignment.get('status', '')}")
+        lines.append(f"  prompt: `{assignment.get('prompt_path', '')}`")
+        if assignment.get("external_run_id"):
+            lines.append(f"  external run: `{assignment.get('external_run_id', '')}`")
+        if assignment.get("launch_script"):
+            lines.append(f"  launch: `{assignment.get('launch_script', '')}`")
+    blocked = worker_plan.get("blocked_tasks", [])
+    if blocked:
+        lines.extend(["", "## Manual-Only Tasks", ""])
+        for task in blocked:
+            lines.append(f"- `{task.get('id', '')}` {task.get('kind', '')} command=`{task.get('command', '')}`")
+    return "\n".join(lines).rstrip() + "\n"
+
+
 __all__ = [
     "build_supervisor_plan",
     "build_supervisor_feedback",
@@ -527,5 +654,7 @@ __all__ = [
     "render_supervisor_feedback",
     "render_supervisor_plan",
     "render_supervisor_runs",
+    "build_supervisor_workers",
+    "render_supervisor_workers",
     "run_supervisor_loop",
 ]

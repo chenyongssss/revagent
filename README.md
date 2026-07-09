@@ -74,6 +74,7 @@ revagent agent-report
 revagent supervisor-plan --update-plan
 revagent supervisor-loop --dry-run
 revagent supervisor-feedback
+revagent supervisor-workers
 revagent validate
 revagent export
 ```
@@ -130,6 +131,8 @@ run experiments.
 - `supervisor_runs.md`: reviewable rendering of supervisor loop runs.
 - `supervisor_feedback.json`: generated read-only supervisor strategy feedback.
 - `supervisor_feedback.md`: reviewable rendering of supervisor strategy feedback.
+- `supervisor_workers.json`: generated conservative external worker assignment plan.
+- `supervisor_workers.md`: reviewable rendering of supervisor worker assignments.
 - `llm_drafts.json`: offline reviewer-intent, response, candidate-text drafts, author review status, and quality status marked as `llm_draft`.
 - `llm_drafts.md`: reviewable rendering of LLM drafts, review notes, and quality issues; these are never auto-approved or auto-applied.
 - `revision_provenance.json`: per-item provenance snapshot linking reviewer comments, LLM drafts, candidates, proof/experiment gates, and apply records.
@@ -209,6 +212,7 @@ run experiments.
 - `revagent supervisor-plan [--update-plan]`: generate the next conservative plan-evolution task plan from `plan.md`, monitor/dashboard state, ledgers, and validation.
 - `revagent supervisor-loop [--cycles N] [--dry-run] [--update-plan]`: execute only safe internal supervisor tasks and stop at manual gates.
 - `revagent supervisor-feedback [--update-plan]`: generate read-only strategy feedback from supervisor runs, agent evals, validation, and manual gates.
+- `revagent supervisor-workers [--workers N] [--queue] [--update-plan]`: create isolated external-worker prompts for safe supervisor tasks; `--queue` records launch scripts without starting processes.
 - `revagent doctor`: check Python, workspace, profiles, and optional `latexmk`.
 - `revagent clean`: remove generated logs and exported artifacts.
 - `revagent export`: copy deliverables into `.revagent/artifacts`.

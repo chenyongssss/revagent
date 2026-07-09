@@ -2,7 +2,7 @@
 
 ## Current Directive
 
-Future tasks must begin by reading this file, then continue the roadmap below. Phases 1-9 are complete. The next phase can add deeper multi-worker orchestration or background supervision, but must preserve manual safety gates.
+Future tasks must begin by reading this file, then continue the roadmap below. Phases 1-10 are complete. The next phase can add background process observation for queued workers, but must preserve manual safety gates.
 
 ## Completed Phase 1
 
@@ -170,3 +170,18 @@ Future tasks must begin by reading this file, then continue the roadmap below. P
 - Verify `supervisor-feedback` writes JSON/Markdown from eval, validation, and supervisor run history.
 - Verify failed eval checks and failed supervisor tasks become strategy recommendations.
 - Verify `supervisor-plan` includes the latest feedback summary.
+
+## Phase 10 Scope
+
+- Add conservative multi-worker orchestration:
+  - `revagent supervisor-workers [--workers N] [--queue]`
+- Split safe supervisor tasks into isolated external-worker prompts.
+- Default mode writes prompts and a worker plan only; it does not launch workers.
+- `--queue` may create queued external run launch scripts, but must not start background processes or weaken manual gates.
+- Workers must inherit the same forbidden actions as `revagent run`.
+
+## Phase 10 Test Plan
+
+- Verify `supervisor-workers` writes worker JSON/Markdown and prompt files without appending external runs.
+- Verify `supervisor-workers --queue` records queued external runs without starting them.
+- Verify worker prompts preserve manual safety gate restrictions.

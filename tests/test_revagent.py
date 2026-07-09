@@ -72,6 +72,7 @@ from revagent.core import (
     write_revision_memory,
     write_revision_readiness,
     build_supervisor_plan,
+    build_supervisor_workers,
     build_submit_pack_dry_run,
     load_agent_decisions,
     load_agent_sessions,
@@ -1746,6 +1747,36 @@ def test_supervisor_feedback_prioritizes_eval_and_run_failures(tmp_path: Path, m
     plan = build_supervisor_plan(tmp_path)
     assert plan["feedback"]["top_recommendation"]["kind"] == "fix_eval_regression"
     assert "Supervisor Feedback" in (config.workspace / "supervisor_feedback.md").read_text(encoding="utf-8")
+
+
+def test_supervisor_workers_create_prompts_and_queue_runs(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    (tmp_path / "plan.md").write_text("# RevAgent Iteris-Style Roadmap\n\n## Phase 9 Scope\n\nDone.\n", encoding="utf-8")
+    monkeypatch.setattr("revagent.external_agent.codex_command", lambda: "codex")
+
+    monkeypatch.chdir(tmp_path)
+    worker_plan = build_supervisor_workers(tmp_path, workers=2, update_plan=True)
+    assert worker_plan["assigned_workers"] >= 1
+    assert worker_plan["queue"] is False
+    assert load_external_agent_runs(load_config(tmp_path)) == []
+    prompt = Path(worker_plan["assignments"][0]["prompt_path"]).read_text(encoding="utf-8")
+    assert "Do not approve proof workflows." in prompt
+    assert "Do not approve or apply candidate edits." in prompt
+    assert "Supervisor worker" in prompt
+    assert (tmp_path / "plan.md").read_text(encoding="utf-8").count("## Phase 10 Scope") == 1
+    assert main(["supervisor-workers", "--workers", "1", "--update-plan"]) == 0
+    assert (tmp_path / "plan.md").read_text(encoding="utf-8").count("## Phase 10 Scope") == 1
+    assert "Supervisor Workers" in (tmp_path / ".revagent" / "supervisor_workers.md").read_text(encoding="utf-8")
+
+    queued = build_supervisor_workers(tmp_path, workers=1, queue=True)
+    assert queued["assignments"][0]["status"] == "queued"
+    runs = load_external_agent_runs(load_config(tmp_path))
+    assert len(runs) == 1
+    assert runs[0]["status"] == "queued"
+    assert Path(runs[0]["launch_script"]).exists()
+    assert main(["supervisor-workers", "--workers", "0"]) == 1
 
 
 def test_agent_decision_queue_tracks_resolve_and_dismiss(tmp_path: Path, monkeypatch) -> None:

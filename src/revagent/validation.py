@@ -40,7 +40,7 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
     for name in SCHEMA_FILES:
         if not (config.workspace / name).exists():
             issues.append(f"missing workspace file: {name}")
-    for name in ("review_items.json", "latex_index.json", "journal_profile.json", "candidate_edits.json", "proof_workflows.json", "experiment_manifests.json", "agent_state.json", "agent_policy.json", "agent_decisions.json", "agent_eval_report.json", "supervisor_plan.json", "supervisor_feedback.json", "llm_drafts.json", "review_analyses.json", "revision_provenance.json", "revision_memory.json", "revision_readiness.json"):
+    for name in ("review_items.json", "latex_index.json", "journal_profile.json", "candidate_edits.json", "proof_workflows.json", "experiment_manifests.json", "agent_state.json", "agent_policy.json", "agent_decisions.json", "agent_eval_report.json", "supervisor_plan.json", "supervisor_feedback.json", "supervisor_workers.json", "llm_drafts.json", "review_analyses.json", "revision_provenance.json", "revision_memory.json", "revision_readiness.json"):
         try:
             read_json(config.workspace / name, {})
         except json.JSONDecodeError as exc:
