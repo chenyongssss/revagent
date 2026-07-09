@@ -2,7 +2,7 @@
 
 ## Current Directive
 
-Future tasks must begin by reading this file, then continue the roadmap below. Phases 1-6 are complete. The next phase should extend supervision beyond read-only artifact inspection without weakening the manual safety gates.
+Future tasks must begin by reading this file, then continue the roadmap below. Phases 1-7 are complete. The next phase can add stronger supervision integration, but must preserve manual safety gates.
 
 ## Completed Phase 1
 
@@ -126,3 +126,17 @@ Future tasks must begin by reading this file, then continue the roadmap below. P
 - Verify completed direct runs expose stdout, stderr, and prompt artifacts.
 - Verify queued runs expose the launch script and return a clear error for missing stdout/stderr.
 - Verify unknown run ids and missing artifact paths fail cleanly.
+
+## Phase 7 Scope
+
+- Add read-only external-run supervision:
+  - `revagent run-supervise [RUN_ID]`
+- Summarize run health from the external-run ledger and recorded artifact paths.
+- Recommend the next command for queued, failed, running, dry-run, completed, canceled, and invalid run records.
+- Do not infer process liveness, mutate lifecycle state, or launch external commands.
+
+## Phase 7 Test Plan
+
+- Verify supervision reports queued runs with launch-script readiness.
+- Verify supervision reports failed runs with log/recovery guidance.
+- Verify one-run and all-run supervision modes fail cleanly for missing run ids.

@@ -174,6 +174,69 @@ def external_agent_run_artifact(run: dict[str, object], artifact: str) -> str:
     return read_text(path)
 
 
+def external_agent_run_supervision(run: dict[str, object]) -> dict[str, object]:
+    status = str(run.get("status", "") or "unknown")
+    artifact_status: dict[str, str] = {}
+    for artifact, field in EXTERNAL_RUN_ARTIFACTS.items():
+        path_value = str(run.get(field, "") or "")
+        if not path_value:
+            artifact_status[artifact] = "missing"
+            continue
+        artifact_status[artifact] = "ready" if Path(path_value).exists() else "missing_file"
+    if status == "queued":
+        ready = artifact_status.get("launch") == "ready"
+        health = "ready_to_launch" if ready else "blocked"
+        next_command = f"{run.get('launch_script', '')}" if ready else f"revagent run-recover {run.get('run_id', '')} --dry-run"
+    elif status == "failed":
+        health = "needs_recovery"
+        next_command = f"revagent run-status {run.get('run_id', '')}"
+    elif status == "running":
+        health = "needs_operator_check"
+        next_command = f"revagent run-status {run.get('run_id', '')}"
+    elif status == "dry_run":
+        health = "prompt_ready"
+        next_command = f"revagent run-log {run.get('run_id', '')} --artifact prompt"
+    elif status == "done":
+        health = "complete"
+        next_command = f"revagent run-log {run.get('run_id', '')} --artifact stdout"
+    elif status == "canceled":
+        health = "closed"
+        next_command = "none"
+    elif status == "invalid":
+        health = "invalid_record"
+        next_command = "repair .revagent/external_agent_runs.jsonl"
+    else:
+        health = "unknown"
+        next_command = f"revagent run-status {run.get('run_id', '')}"
+    return {
+        "run_id": run.get("run_id", ""),
+        "status": status,
+        "health": health,
+        "artifacts": artifact_status,
+        "recovery": external_run_recovery_hint(run),
+        "next_command": next_command,
+    }
+
+
+def render_external_agent_supervision(runs: list[dict[str, object]]) -> str:
+    lines = ["# External Agent Supervision", ""]
+    if not runs:
+        lines.append("No external agent runs recorded yet.")
+        return "\n".join(lines) + "\n"
+    for run in runs[-80:]:
+        summary = external_agent_run_supervision(run)
+        artifacts = ", ".join(f"{key}={value}" for key, value in sorted(summary["artifacts"].items()))
+        lines.extend(
+            [
+                f"- `{summary['run_id']}` status={summary['status']} health={summary['health']}",
+                f"  artifacts: {artifacts}",
+                f"  recovery: {summary['recovery']}",
+                f"  next: `{summary['next_command']}`",
+            ]
+        )
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def recover_external_agent_run(
     base: Path,
     *,
@@ -598,6 +661,7 @@ __all__ = [
     "build_external_agent_prompt",
     "build_monitor_report",
     "external_agent_run_artifact",
+    "external_agent_run_supervision",
     "load_external_agent_runs",
     "get_external_agent_run",
     "mark_external_agent_run",
@@ -606,6 +670,7 @@ __all__ = [
     "render_external_agent_runs",
     "render_external_agent_run_detail",
     "render_monitor_report",
+    "render_external_agent_supervision",
     "run_external_agent",
     "write_dashboard_html",
     "write_monitor_report",

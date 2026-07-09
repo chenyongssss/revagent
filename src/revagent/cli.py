@@ -76,6 +76,7 @@ from .external_agent import (
     recover_external_agent_run,
     render_external_agent_run_detail,
     render_external_agent_runs,
+    render_external_agent_supervision,
     render_monitor_report,
     run_external_agent,
     write_dashboard_html,
@@ -232,6 +233,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_log = sub.add_parser("run-log", help="Print an external agent run artifact.")
     run_log.add_argument("run_id")
     run_log.add_argument("--artifact", default="stdout", choices=["prompt", "stdout", "stderr", "launch"])
+    run_supervise = sub.add_parser("run-supervise", help="Summarize external agent run health and next commands.")
+    run_supervise.add_argument("run_id", nargs="?")
     agent_plan = sub.add_parser("agent-plan", help="Create a goal-oriented agent session plan.")
     agent_plan.add_argument("--goal", required=True, choices=["rebuttal-draft", "proof-response", "experiment-response", "full-revision-pass"])
     sub.add_parser("agent-session", help="Show recorded goal-oriented agent sessions.")
@@ -690,6 +693,15 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(f"error: {exc}")
             return 1
+        return 0
+    if args.command == "run-supervise":
+        config = load_config(base)
+        try:
+            runs = [get_external_agent_run(config, args.run_id)] if args.run_id else load_external_agent_runs(config)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(render_external_agent_supervision(runs), end="")
         return 0
     if args.command == "agent-plan":
         try:

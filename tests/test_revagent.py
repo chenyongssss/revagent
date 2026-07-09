@@ -1550,6 +1550,9 @@ def test_external_agent_run_records_ledger_and_logs(tmp_path: Path, monkeypatch)
     assert main(["run-log", runs[0]["run_id"], "--artifact", "stdout"]) == 0
     assert main(["run-log", runs[0]["run_id"], "--artifact", "stderr"]) == 0
     assert main(["run-log", runs[0]["run_id"], "--artifact", "prompt"]) == 0
+    assert main(["run-supervise"]) == 0
+    assert main(["run-supervise", runs[0]["run_id"]]) == 0
+    assert main(["run-supervise", "missing"]) == 1
 
 
 def test_external_agent_run_recover_dry_run_reuses_previous_request(tmp_path: Path, monkeypatch) -> None:
@@ -1589,6 +1592,7 @@ def test_external_agent_run_detach_writes_launch_script_and_queued_record(tmp_pa
     assert main(["run-status", runs[0]["run_id"]]) == 0
     assert main(["run-log", runs[0]["run_id"], "--artifact", "launch"]) == 0
     assert main(["run-log", runs[0]["run_id"], "--artifact", "stdout"]) == 1
+    assert main(["run-supervise", runs[0]["run_id"]]) == 0
     assert main(["run-recover", runs[0]["run_id"], "--dry-run"]) == 0
     assert len(load_external_agent_runs(load_config(tmp_path))) == 1
     assert main(["run-mark", runs[0]["run_id"], "--status", "done", "--note", "Finished from launch script."]) == 0
