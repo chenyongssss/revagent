@@ -6,6 +6,7 @@ __pycache__/
 .tmp/
 .mypy_cache/
 .ruff_cache/
+.codex/
 build/
 dist/
 .venv/

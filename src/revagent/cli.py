@@ -3,6 +3,32 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .agent import (
+    agent_blockers,
+    build_agent_state,
+    complete_check_agent_session,
+    dismiss_agent_decision,
+    get_agent_decision,
+    load_agent_sessions,
+    plan_agent_session,
+    refresh_agent_decisions,
+    render_agent_blockers,
+    render_agent_dashboard,
+    render_agent_decisions,
+    render_agent_eval_report,
+    render_agent_next,
+    render_agent_report,
+    render_agent_sessions,
+    render_agent_state,
+    resolve_agent_decision,
+    run_agent_eval,
+    resume_agent_session,
+    resume_agent_session_watch,
+    run_agent_once,
+    write_agent_dashboard,
+    write_agent_report,
+    write_agent_state,
+)
 from .candidates import (
     apply_approved_candidates,
     approve_candidate,
@@ -20,6 +46,8 @@ from .lanes import (
     experiment_contract,
     experiment_incorporate,
     experiment_plan_for_item,
+    experiment_run_preview,
+    experiment_run_record,
     plan_all_items,
     plan_item,
     proof_audit_for_item,
@@ -28,16 +56,22 @@ from .lanes import (
     proof_plan_for_item,
     reasoning_for_item,
     record_experiment_result,
+    render_experiment_run_preview,
     render_item_plan,
     reopen_item,
 )
-from .rendering import create_draft
+from .llm import draft_all_with_llm, draft_item_with_llm, llm_accept, llm_check, llm_check_all, llm_edit, llm_reject, llm_review, render_llm_drafts
+from .provenance import provenance_for_item
+from .readiness import build_submit_pack_dry_run, render_revision_readiness, render_submit_pack_dry_run, write_revision_readiness
+from .review_analysis import analyze_all_review_items, analyze_review_item, render_review_analyses, review_analysis_for_item
+from .rendering import create_draft, incorporate_drafts
 from .reviews import create_plan, ingest_comments
 from .validation import doctor, validate_workspace
 from .workspace import (
     clean_workspace,
     export_artifacts,
     init_workspace,
+    load_config,
     migrate_workspace,
     render_migration_report,
     schema_markdown,
@@ -63,7 +97,33 @@ def build_parser() -> argparse.ArgumentParser:
     plan_item_parser.add_argument("item_id", nargs="?")
     plan_item_parser.add_argument("--all", action="store_true", help="Plan every review item.")
     plan_item_parser.add_argument("--force", action="store_true", help="Regenerate plans for incorporated or closed items.")
+    analyze = sub.add_parser("analyze-review", help="Create structured reviewer-intent analysis for one item or all items.")
+    analyze.add_argument("item_id", nargs="?")
+    analyze.add_argument("--all", action="store_true", help="Analyze every review item.")
+    analyze.add_argument("--force", action="store_true", help="Regenerate existing review analyses.")
+    review_analysis = sub.add_parser("review-analysis", help="Show structured reviewer-intent analysis.")
+    review_analysis.add_argument("item_id", nargs="?")
     sub.add_parser("draft", help="Draft response letter and reviewable manuscript patch notes.")
+    llm_draft = sub.add_parser("llm-draft", help="Generate offline LLM reviewer-intent and response drafts.")
+    llm_draft.add_argument("item_id", nargs="?")
+    llm_draft.add_argument("--all", action="store_true", help="Draft every review item.")
+    llm_draft.add_argument("--force", action="store_true", help="Regenerate existing LLM drafts.")
+    llm_draft.add_argument("--provider", default="fake", choices=["fake", "openai-compatible"], help="LLM provider to use.")
+    llm_review_parser = sub.add_parser("llm-review", help="Show one LLM draft for author review.")
+    llm_review_parser.add_argument("item_id")
+    llm_accept_parser = sub.add_parser("llm-accept", help="Mark an LLM draft as author accepted.")
+    llm_accept_parser.add_argument("item_id")
+    llm_reject_parser = sub.add_parser("llm-reject", help="Reject an LLM draft with an author note.")
+    llm_reject_parser.add_argument("item_id")
+    llm_reject_parser.add_argument("--note", required=True)
+    llm_edit_parser = sub.add_parser("llm-edit", help="Replace LLM draft response and/or candidate text from files.")
+    llm_edit_parser.add_argument("item_id")
+    llm_edit_parser.add_argument("--response-file")
+    llm_edit_parser.add_argument("--candidate-file")
+    llm_check_parser = sub.add_parser("llm-check", help="Run deterministic quality checks for LLM drafts.")
+    llm_check_parser.add_argument("item_id", nargs="?")
+    llm_check_parser.add_argument("--all", action="store_true", help="Check every LLM draft.")
+    sub.add_parser("incorporate-drafts", help="Regenerate artifacts using accepted and quality-passed LLM drafts.")
     sub.add_parser("schema", help="Print workspace schema documentation.")
     migrate = sub.add_parser("migrate", help="Inspect or apply non-destructive workspace schema migrations.")
     migrate_mode = migrate.add_mutually_exclusive_group()
@@ -93,6 +153,11 @@ def build_parser() -> argparse.ArgumentParser:
     experiment_incorporate_parser.add_argument("--target", required=True)
     experiment_incorporate_parser.add_argument("--field", required=True)
     experiment_incorporate_parser.add_argument("--text-file", required=True)
+    experiment_run_parser = sub.add_parser("experiment-run", help="Preview or record a local experiment command from the manifest.")
+    experiment_run_parser.add_argument("item_id")
+    experiment_run_mode = experiment_run_parser.add_mutually_exclusive_group(required=True)
+    experiment_run_mode.add_argument("--dry-run", action="store_true", help="Show command, cwd, logs, and expected artifact status without executing.")
+    experiment_run_mode.add_argument("--record", action="store_true", help="Execute the manifest command and record logs and detected artifact hashes.")
     record = sub.add_parser("record-result", help="Record author-confirmed experiment result provenance.")
     record.add_argument("item_id")
     record.add_argument("--artifact", required=True)
@@ -122,7 +187,46 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--backup", required=True)
     validate = sub.add_parser("validate", help="Validate workspace schema and LaTeX references.")
     validate.add_argument("--compile", action="store_true", help="Run the configured LaTeX compile command if available.")
+    provenance = sub.add_parser("provenance", help="Generate and show revision provenance.")
+    provenance.add_argument("item_id", nargs="?")
+    readiness = sub.add_parser("readiness", help="Generate and show revision readiness.")
+    readiness.add_argument("item_id", nargs="?")
+    submit_pack = sub.add_parser("submit-pack", help="Inspect final submission package readiness.")
+    submit_pack.add_argument("--dry-run", action="store_true", help="Show missing submission package pieces without writing final artifacts.")
     sub.add_parser("status", help="Print workspace item counts and configuration.")
+    sub.add_parser("agent-status", help="Build and print the safe-auto agent task queue.")
+    sub.add_parser("monitor", help="Write and print the agent dashboard.")
+    agent_plan = sub.add_parser("agent-plan", help="Create a goal-oriented agent session plan.")
+    agent_plan.add_argument("--goal", required=True, choices=["rebuttal-draft", "proof-response", "experiment-response", "full-revision-pass"])
+    sub.add_parser("agent-session", help="Show recorded goal-oriented agent sessions.")
+    agent_resume = sub.add_parser("agent-resume", help="Resume the current goal-oriented agent session.")
+    agent_resume.add_argument("--limit", type=int, default=None)
+    agent_resume.add_argument("--retry-failed", action="store_true")
+    agent_resume.add_argument("--watch", action="store_true", help="Keep resuming until the session blocks, fails, completes, or --cycles is reached.")
+    agent_resume.add_argument("--interval", type=float, default=5.0, help="Seconds between watch cycles.")
+    agent_resume.add_argument("--cycles", type=int, default=None, help="Maximum watch cycles.")
+    sub.add_parser("agent-blockers", help="Show current manual gates and failed tasks.")
+    sub.add_parser("agent-complete-check", help="Refresh the current session completion status.")
+    sub.add_parser("agent-decisions", help="Refresh and show the manual decision queue.")
+    agent_decision = sub.add_parser("agent-decision", help="Show one manual decision.")
+    agent_decision.add_argument("decision_id")
+    agent_resolve = sub.add_parser("agent-decision-resolve", help="Mark a decision resolved after its underlying gate is complete.")
+    agent_resolve.add_argument("decision_id")
+    agent_resolve.add_argument("--note", required=True)
+    agent_dismiss = sub.add_parser("agent-decision-dismiss", help="Dismiss a decision with an author note.")
+    agent_dismiss.add_argument("decision_id")
+    agent_dismiss.add_argument("--note", required=True)
+    agent_eval = sub.add_parser("agent-eval", help="Run deterministic agent trajectory eval fixtures.")
+    eval_mode = agent_eval.add_mutually_exclusive_group()
+    eval_mode.add_argument("--fixture", choices=["full-revision", "stale-input", "safety-gates"])
+    eval_mode.add_argument("--all", action="store_true", help="Run every built-in eval fixture.")
+    sub.add_parser("agent-next", help="Show the next safe task or blocking manual gate.")
+    sub.add_parser("agent-report", help="Write and print the agent scheduler, stale-input, and manual-gate report.")
+    agent_run = sub.add_parser("agent-run", help="Execute safe-auto agent tasks.")
+    agent_run.add_argument("--limit", type=int, default=None, help="Maximum number of safe pending tasks to execute.")
+    agent_run.add_argument("--until-blocked", action="store_true", help="Run safe tasks until only blocked/manual work remains.")
+    agent_run.add_argument("--retry-failed", action="store_true", help="Retry failed safe tasks with unchanged inputs.")
+    agent_run.add_argument("--max-failures", type=int, default=None, help="Stop after this many failed safe tasks.")
     sub.add_parser("doctor", help="Check local environment and profile availability.")
     sub.add_parser("clean", help="Remove generated logs and exported artifacts, preserving source workspace files.")
     sub.add_parser("export", help="Copy final artifacts into .revagent/artifacts.")
@@ -168,9 +272,96 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}")
             return 1
         return 0
+    if args.command == "analyze-review":
+        try:
+            if args.all:
+                analyses = analyze_all_review_items(base, force=args.force)
+                print(render_review_analyses(analyses), end="")
+                return 0
+            if not args.item_id:
+                print("error: provide an item id or --all")
+                return 1
+            analysis = analyze_review_item(base, args.item_id, force=args.force)
+            print(render_review_analyses({analysis["item_id"]: analysis}), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "review-analysis":
+        try:
+            print(review_analysis_for_item(base, args.item_id), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
     if args.command == "draft":
         create_draft(base)
         print("Wrote response_letter.md, manuscript.patch, and candidate_edits.json")
+        return 0
+    if args.command == "llm-draft":
+        try:
+            if args.all:
+                print(render_llm_drafts(draft_all_with_llm(base, provider=args.provider, force=args.force)), end="")
+                return 0
+            if not args.item_id:
+                print("error: provide an item id or --all")
+                return 1
+            draft = draft_item_with_llm(base, args.item_id, provider=args.provider, force=args.force)
+            print(render_llm_drafts({draft["item_id"]: draft}), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "llm-review":
+        try:
+            print(llm_review(base, args.item_id), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "llm-accept":
+        try:
+            draft = llm_accept(base, args.item_id)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(f"Accepted LLM draft {draft['item_id']}")
+        return 0
+    if args.command == "llm-reject":
+        try:
+            draft = llm_reject(base, args.item_id, args.note)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(f"Rejected LLM draft {draft['item_id']}")
+        return 0
+    if args.command == "llm-edit":
+        try:
+            draft = llm_edit(base, args.item_id, response_file=args.response_file, candidate_file=args.candidate_file)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(f"Edited LLM draft {draft['item_id']}")
+        return 0
+    if args.command == "llm-check":
+        try:
+            if args.all:
+                print(render_llm_drafts(llm_check_all(base)), end="")
+                return 0
+            if not args.item_id:
+                print("error: provide an item id or --all")
+                return 1
+            draft = llm_check(base, args.item_id)
+            print(render_llm_drafts({draft["item_id"]: draft}), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "incorporate-drafts":
+        result = incorporate_drafts(base)
+        print(f"Incorporated {len(result['eligible'])} eligible LLM drafts")
+        for warning in result["warnings"]:
+            print(f"warning: {warning}")
         return 0
     if args.command == "schema":
         print(schema_markdown())
@@ -241,6 +432,17 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"Recorded experiment backfill {backfill['target']} {backfill['field']}")
         return 0
+    if args.command == "experiment-run":
+        try:
+            if args.dry_run:
+                print(render_experiment_run_preview(experiment_run_preview(base, args.item_id)), end="")
+                return 0
+            attempt = experiment_run_record(base, args.item_id)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(f"Recorded experiment run {attempt['attempt_id']} exit={attempt['exit_code']}")
+        return 0 if attempt.get("exit_code") == 0 else 1
     if args.command == "record-result":
         try:
             record = record_experiment_result(base, args.item_id, args.artifact, args.note)
@@ -339,6 +541,27 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {issue}")
         print("validation ok" if result["ok"] else "validation failed")
         return 0 if result["ok"] else 1
+    if args.command == "provenance":
+        try:
+            print(provenance_for_item(base, args.item_id), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "readiness":
+        try:
+            readiness_report = write_revision_readiness(base)
+            print(render_revision_readiness(readiness_report, args.item_id), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "submit-pack":
+        if not args.dry_run:
+            print("error: submit-pack currently supports --dry-run only")
+            return 1
+        print(render_submit_pack_dry_run(build_submit_pack_dry_run(base)), end="")
+        return 0
     if args.command == "status":
         result = status(base)
         print(f"workspace: {result['workspace']}")
@@ -348,6 +571,97 @@ def main(argv: list[str] | None = None) -> int:
         for key, value in result["counts"].items():
             print(f"{key}: {value}")
         return 0
+    if args.command == "agent-status":
+        state = build_agent_state(base)
+        config = load_config(base)
+        write_agent_state(config, state)
+        print(render_agent_state(state), end="")
+        return 0
+    if args.command == "monitor":
+        dashboard = write_agent_dashboard(base)
+        print(render_agent_dashboard(dashboard), end="")
+        return 0
+    if args.command == "agent-plan":
+        try:
+            session = plan_agent_session(base, args.goal)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(render_agent_sessions([session]), end="")
+        return 0
+    if args.command == "agent-session":
+        config = load_config(base)
+        print(render_agent_sessions(load_agent_sessions(config)), end="")
+        return 0
+    if args.command == "agent-resume":
+        try:
+            if args.watch:
+                session = resume_agent_session_watch(base, interval=args.interval, cycles=args.cycles, limit=args.limit, retry_failed=args.retry_failed)
+            else:
+                session = resume_agent_session(base, limit=args.limit, retry_failed=args.retry_failed)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(render_agent_sessions([session]), end="")
+        return 0 if session.get("status") != "failed" else 1
+    if args.command == "agent-blockers":
+        print(render_agent_blockers(agent_blockers(base)), end="")
+        return 0
+    if args.command == "agent-complete-check":
+        try:
+            session = complete_check_agent_session(base)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(render_agent_sessions([session]), end="")
+        return 0 if session.get("status") != "failed" else 1
+    if args.command == "agent-decisions":
+        print(render_agent_decisions(refresh_agent_decisions(base)), end="")
+        return 0
+    if args.command == "agent-decision":
+        try:
+            print(render_agent_decisions([get_agent_decision(base, args.decision_id)]), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "agent-decision-resolve":
+        try:
+            print(render_agent_decisions([resolve_agent_decision(base, args.decision_id, args.note)]), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "agent-decision-dismiss":
+        try:
+            print(render_agent_decisions([dismiss_agent_decision(base, args.decision_id, args.note)]), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "agent-eval":
+        try:
+            report = run_agent_eval(base, fixture=None if args.all or not args.fixture else args.fixture)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(render_agent_eval_report(report), end="")
+        return 0 if report.get("ok") else 1
+    if args.command == "agent-next":
+        state = build_agent_state(base)
+        config = load_config(base)
+        write_agent_state(config, state)
+        print(render_agent_next(state), end="")
+        return 0
+    if args.command == "agent-report":
+        report = write_agent_report(base)
+        write_agent_dashboard(base)
+        print(render_agent_report(report), end="")
+        return 0
+    if args.command == "agent-run":
+        state = run_agent_once(base, limit=args.limit, until_blocked=args.until_blocked, retry_failed=args.retry_failed, max_failures=args.max_failures)
+        print(render_agent_state(state), end="")
+        return 0 if state["summary"].get("failed", 0) == 0 else 1
     if args.command == "doctor":
         result = doctor(base)
         print_check_result(result)

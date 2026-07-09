@@ -1,12 +1,19 @@
 import hashlib
 import json
+import sys
 from pathlib import Path
+
+import pytest
 
 from revagent.cli import main
 from revagent.core import (
     SCHEMA_FILES,
+    analyze_all_review_items,
+    analyze_review_item,
     apply_approved_candidates,
     approve_candidate,
+    build_llm_context,
+    build_agent_state,
     clean_workspace,
     close_item,
     create_draft,
@@ -16,13 +23,27 @@ from revagent.core import (
     experiment_contract,
     experiment_incorporate,
     experiment_plan_for_item,
+    experiment_run_preview,
+    experiment_run_record,
     export_artifacts,
+    incorporate_drafts,
     ingest_comments,
     init_workspace,
     inspect_record,
     latex_index,
     load_config,
+    draft_all_with_llm,
+    draft_item_with_llm,
+    llm_accept,
+    llm_check,
+    llm_check_all,
+    llm_edit,
+    llm_reject,
+    llm_review,
+    load_agent_runs,
     load_candidates,
+    load_experiment_run_attempts,
+    load_llm_drafts,
     plan_all_items,
     plan_item,
     propose_candidates,
@@ -30,15 +51,27 @@ from revagent.core import (
     proof_approve,
     proof_obligation,
     proof_plan_for_item,
+    provenance_missing_or_stale,
     reasoning_for_item,
     record_experiment_result,
     reject_candidate,
     reopen_item,
     render_apply_diff,
+    render_revision_readiness,
+    render_submit_pack_dry_run,
+    render_revision_provenance,
+    run_agent_once,
+    write_revision_readiness,
+    build_submit_pack_dry_run,
+    load_agent_decisions,
+    load_agent_sessions,
+    load_review_analyses,
+    render_review_analyses,
     restore_backup,
     schema_markdown,
     status,
     validate_workspace,
+    write_revision_provenance,
 )
 from revagent.profiles import load_profile
 from revagent.workspace import CURRENT_SCHEMA_VERSION, migrate_workspace, render_migration_report
@@ -129,6 +162,8 @@ def test_revision_workspace_generates_core_artifacts(tmp_path: Path) -> None:
     assert "Dependency Map" in (ws / "proof_audit.md").read_text(encoding="utf-8")
     assert "Detected Assets" in (ws / "experiment_plan.md").read_text(encoding="utf-8")
     assert "REVAGENT clarification TODO" in (ws / "manuscript.patch").read_text(encoding="utf-8")
+    assert (ws / "review_analyses.json").exists()
+    assert (artifact_dir / "review_analyses.md").exists()
     assert (ws / "candidate_edits.json").exists()
     assert (ws / "decision_log.md").exists()
     assert (artifact_dir / "MANIFEST.md").exists()
@@ -171,6 +206,82 @@ def test_validate_status_clean_and_cli(tmp_path: Path, monkeypatch) -> None:
     removed = clean_workspace(tmp_path)
     assert any(path.endswith("artifacts") for path in removed)
     assert (tmp_path / ".revagent" / "artifacts").exists()
+
+
+def test_revision_readiness_reports_blockers_and_submit_pack(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    analyze_all_review_items(tmp_path)
+    plan_all_items(tmp_path)
+    proof_plan_for_item(tmp_path, "R001")
+    experiment_contract(tmp_path, "R002")
+    config = load_config(tmp_path)
+    manifests = json.loads((config.workspace / "experiment_manifests.json").read_text(encoding="utf-8"))
+    manifests["R002"]["command_template"] = f"{sys.executable} scripts/run_demo.py"
+    manifests["R002"]["expected_artifacts"] = ["results/demo_metrics.csv"]
+    (config.workspace / "experiment_manifests.json").write_text(json.dumps(manifests, indent=2) + "\n", encoding="utf-8")
+    create_draft(tmp_path)
+
+    readiness = write_revision_readiness(tmp_path)
+    by_item = {item["item_id"]: item for item in readiness["items"]}
+    assert by_item["R001"]["readiness_status"] == "blocked_manual"
+    assert "author proof approval" in by_item["R001"]["manual_actions"]
+    assert by_item["R002"]["readiness_status"] == "needs_evidence"
+    assert "experiment run attempt" in by_item["R002"]["missing_inputs"]
+    assert "recorded experiment result" in by_item["R002"]["missing_inputs"]
+    assert (tmp_path / ".revagent" / "revision_readiness.json").exists()
+    assert "## Blockers" in (tmp_path / ".revagent" / "revision_readiness.md").read_text(encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["readiness", "R001"]) == 0
+    assert main(["submit-pack", "--dry-run"]) == 0
+    submit_pack = build_submit_pack_dry_run(tmp_path)
+    assert not submit_pack["ready"]
+    assert "manual gates resolved" in submit_pack["missing"]
+    assert "# Submit Pack Dry Run" in render_submit_pack_dry_run(submit_pack)
+
+
+def test_revision_readiness_needs_apply_then_ready_after_apply(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    analyze_all_review_items(tmp_path)
+    plan_all_items(tmp_path)
+    create_draft(tmp_path)
+
+    config = load_config(tmp_path)
+    manuscript_candidate = next(candidate for candidate in load_candidates(config) if candidate["kind"] == "manuscript")
+    (tmp_path / "author_text.tex").write_text("We added a concise clarification requested by the reviewer.", encoding="utf-8")
+    edit_candidate(tmp_path, manuscript_candidate["id"], "author_text.tex")
+    approve_candidate(tmp_path, manuscript_candidate["id"])
+
+    readiness = write_revision_readiness(tmp_path)
+    item = next(item for item in readiness["items"] if item["item_id"] == manuscript_candidate["item_id"])
+    assert item["readiness_status"] == "needs_apply"
+    validation = validate_workspace(tmp_path)
+    assert any(f"{manuscript_candidate['id']} is approved but not applied" in warning for warning in validation["warnings"])
+
+    apply_approved_candidates(tmp_path)
+    write_revision_provenance(tmp_path)
+    readiness = write_revision_readiness(tmp_path)
+    item = next(item for item in readiness["items"] if item["item_id"] == manuscript_candidate["item_id"])
+    assert item["readiness_status"] == "ready"
+    assert "Ready Items" in render_revision_readiness(readiness)
+
+
+def test_agent_safe_loop_refreshes_readiness(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    state = run_agent_once(tmp_path, until_blocked=True)
+
+    assert (tmp_path / ".revagent" / "revision_readiness.json").exists()
+    assert any(task.get("kind") == "readiness" and task.get("status") == "done" for task in state.get("tasks", []))
+    candidates = load_candidates(load_config(tmp_path))
+    assert not any(candidate.get("status") in {"approved", "applied"} for candidate in candidates)
 
 
 def test_custom_journal_profile_override(tmp_path: Path) -> None:
@@ -401,6 +512,456 @@ def test_schema_proof_experiment_reason_and_result_provenance(tmp_path: Path) ->
     assert not any("R002 experiment result provenance is not recorded" in warning for warning in validation["warnings"])
 
 
+def test_review_analysis_cli_planning_and_llm_context(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+
+    proof = analyze_review_item(tmp_path, "R001")
+    assert proof["kind"] == "proof"
+    assert "author-verified proof obligation" in " ".join(proof["evidence_needs"])
+    assert proof["author_verification"]
+
+    analyses = analyze_all_review_items(tmp_path)
+    assert set(analyses) == {"R001", "R002", "R003"}
+    assert "Review Analyses" in render_review_analyses(analyses)
+    assert "recorded artifact hash" in " ".join(analyses["R002"]["evidence_needs"])
+    assert "conservative clarification" in analyses["R003"]["manuscript_action"].lower()
+
+    plan = plan_item(tmp_path, "R001", force=True)
+    assert plan["review_analysis_id"] == "R001"
+    assert any("Requested change" in text or "Requested change:" in text for text in plan["reviewer_intent_decomposition"])
+
+    context = build_llm_context(tmp_path, "R001")
+    assert context["review_analysis"]["item_id"] == "R001"
+
+    reasoning = reasoning_for_item(tmp_path, "R001")
+    assert "Claim Targets" in reasoning
+    assert "Evidence Needs" in reasoning
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["review-analysis", "R001"]) == 0
+    assert main(["analyze-review", "--all", "--force"]) == 0
+
+
+def test_llm_draft_context_updates_review_item_and_candidate_without_approval(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+
+    context = build_llm_context(tmp_path, "R003")
+    assert "contribution" in context["item"]["comment"].lower()
+    assert context["journal_profile"]["display_name"]
+    assert context["location"]
+    assert "paper.tex" in context["nearby_context"]["file"]
+
+    manuscript_draft = draft_item_with_llm(tmp_path, "R003")
+    assert manuscript_draft["draft_source"] == "llm_draft"
+    assert manuscript_draft["review_status"] == "drafted"
+    assert manuscript_draft["reviewer_intent"]["lane"] == "manuscript"
+    assert (tmp_path / ".revagent" / "llm_drafts.json").exists()
+    assert "LLM Drafts" in (tmp_path / ".revagent" / "llm_drafts.md").read_text(encoding="utf-8")
+
+    config = load_config(tmp_path)
+    items = json.loads((config.workspace / "review_items.json").read_text(encoding="utf-8"))
+    assert next(item for item in items if item["id"] == "R003")["draft_source"] == "llm_draft"
+    manuscript_candidate = next(candidate for candidate in load_candidates(config) if candidate["item_id"] == "R003")
+    assert manuscript_candidate["draft_source"] == "llm_draft"
+    assert manuscript_candidate["status"] == "proposed"
+    assert manuscript_candidate["approved_at"] == ""
+    assert manuscript_candidate["applied_at"] == ""
+
+    proof_draft = draft_item_with_llm(tmp_path, "R001")
+    assert proof_draft["reviewer_intent"]["lane"] == "proof"
+    proof_candidate = next(candidate for candidate in load_candidates(config) if candidate["item_id"] == "R001")
+    assert proof_candidate["status"] == "blocked"
+    assert proof_candidate["requires_author_text"] is True
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["llm-draft", "R003"]) == 0
+    assert main(["llm-draft", "--all", "--force"]) == 0
+    assert main(["llm-draft"]) == 1
+
+
+def test_llm_review_gate_accept_reject_and_edit_without_candidate_approval(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+    draft_all_with_llm(tmp_path)
+
+    assert "Review status: drafted" in llm_review(tmp_path, "R003")
+    accepted = llm_accept(tmp_path, "R003")
+    assert accepted["review_status"] == "accepted"
+    assert accepted["quality_status"] == "unchecked"
+
+    config = load_config(tmp_path)
+    manuscript_candidate = next(candidate for candidate in load_candidates(config) if candidate["item_id"] == "R003")
+    assert manuscript_candidate["status"] == "proposed"
+    assert manuscript_candidate["approved_at"] == ""
+    assert manuscript_candidate["applied_at"] == ""
+
+    rejected = llm_reject(tmp_path, "R002", "Needs experiment provenance wording.")
+    assert rejected["review_status"] == "rejected"
+    assert rejected["review_note"] == "Needs experiment provenance wording."
+
+    (tmp_path / "response_edit.md").write_text("**Response.** We clarified the contribution after author review.", encoding="utf-8")
+    (tmp_path / "candidate_edit.tex").write_text("We clarify the contribution and scope in the revised manuscript.", encoding="utf-8")
+    edited = llm_edit(tmp_path, "R003", response_file="response_edit.md", candidate_file="candidate_edit.tex")
+    assert edited["review_status"] == "edited"
+    assert edited["quality_status"] == "unchecked"
+    assert "author review" in edited["response_draft"]
+    assert "contribution and scope" in edited["candidate_text"]
+
+    manuscript_candidate = next(candidate for candidate in load_candidates(config) if candidate["item_id"] == "R003")
+    assert manuscript_candidate["status"] == "proposed"
+    assert "contribution and scope" in manuscript_candidate["content"]
+    assert "LLM draft edited" in (config.workspace / "decision_log.md").read_text(encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["llm-review", "R003"]) == 0
+    assert main(["llm-accept", "R003"]) == 0
+    assert main(["llm-reject", "R002", "--note", "Still too speculative."]) == 0
+    assert main(["llm-edit", "R003", "--response-file", "response_edit.md", "--candidate-file", "candidate_edit.tex"]) == 0
+    assert main(["llm-edit", "R003"]) == 1
+
+
+def test_llm_quality_gate_blocks_unverified_proof_and_experiment_claims(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+    draft_all_with_llm(tmp_path)
+
+    proof = llm_check(tmp_path, "R001")
+    assert proof["quality_status"] == "failed"
+    assert any("proof workflow approval" in issue for issue in proof["quality_issues"])
+
+    experiment = llm_check(tmp_path, "R002")
+    assert experiment["quality_status"] == "failed"
+    assert any("experiment provenance" in issue or "recorded provenance" in issue for issue in experiment["quality_issues"])
+
+    accepted = llm_accept(tmp_path, "R003")
+    assert accepted["quality_status"] == "unchecked"
+    manuscript = llm_check(tmp_path, "R003")
+    assert manuscript["quality_status"] == "passed"
+    assert manuscript["quality_issues"] == []
+
+    config = load_config(tmp_path)
+    assert not any(candidate["status"] in {"approved", "applied"} for candidate in load_candidates(config))
+    assert "Quality Issues" in (config.workspace / "llm_drafts.md").read_text(encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["llm-check", "R003"]) == 0
+    assert main(["llm-check", "--all"]) == 0
+    assert main(["llm-check"]) == 1
+
+
+def test_llm_candidate_approval_gate_requires_reviewed_quality_passed_draft(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+    draft_all_with_llm(tmp_path)
+
+    config = load_config(tmp_path)
+    manuscript_candidate = next(candidate for candidate in load_candidates(config) if candidate["item_id"] == "R003")
+    with pytest.raises(ValueError, match="accepted or edited LLM draft"):
+        approve_candidate(tmp_path, manuscript_candidate["id"])
+
+    llm_accept(tmp_path, "R003")
+    with pytest.raises(ValueError, match="passed LLM quality check"):
+        approve_candidate(tmp_path, manuscript_candidate["id"])
+
+    llm_check(tmp_path, "R003")
+    incorporate_drafts(tmp_path)
+    approved = approve_candidate(tmp_path, manuscript_candidate["id"])
+    assert approved["status"] == "approved"
+
+    record = inspect_record(tmp_path, manuscript_candidate["id"])
+    assert record["candidate"]["llm_review_status"] == "accepted"
+    assert record["candidate"]["llm_quality_status"] == "passed"
+
+
+def test_llm_candidate_gate_blocks_divergent_text_but_allows_author_edit(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+    draft_all_with_llm(tmp_path)
+    llm_accept(tmp_path, "R003")
+    llm_check(tmp_path, "R003")
+    incorporate_drafts(tmp_path)
+
+    config = load_config(tmp_path)
+    candidates = load_candidates(config)
+    manuscript_candidate = next(candidate for candidate in candidates if candidate["item_id"] == "R003")
+    manuscript_candidate["content"] = "Divergent unreviewed manuscript text."
+    for index, candidate in enumerate(candidates):
+        if candidate["id"] == manuscript_candidate["id"]:
+            candidates[index] = manuscript_candidate
+            break
+    (config.workspace / "candidate_edits.json").write_text(json.dumps(candidates, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="content differs"):
+        approve_candidate(tmp_path, manuscript_candidate["id"])
+
+    (tmp_path / "author_text.tex").write_text("Author-approved manuscript text.", encoding="utf-8")
+    edit_candidate(tmp_path, manuscript_candidate["id"], "author_text.tex")
+    approved = approve_candidate(tmp_path, manuscript_candidate["id"])
+    assert approved["status"] == "approved"
+    assert approved["author_edited"] is True
+
+
+def test_validate_flags_invalid_approved_llm_candidate(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+    draft_all_with_llm(tmp_path)
+
+    config = load_config(tmp_path)
+    candidates = load_candidates(config)
+    manuscript_candidate = next(candidate for candidate in candidates if candidate["item_id"] == "R003")
+    manuscript_candidate["status"] = "approved"
+    manuscript_candidate["approved_at"] = "manual-test"
+    for index, candidate in enumerate(candidates):
+        if candidate["id"] == manuscript_candidate["id"]:
+            candidates[index] = manuscript_candidate
+            break
+    (config.workspace / "candidate_edits.json").write_text(json.dumps(candidates, indent=2) + "\n", encoding="utf-8")
+
+    validation = validate_workspace(tmp_path)
+    assert not validation["ok"]
+    assert any("accepted or edited LLM draft" in issue for issue in validation["issues"])
+
+
+def test_revision_provenance_tracks_llm_candidate_approval_and_apply(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+    draft_all_with_llm(tmp_path)
+    llm_accept(tmp_path, "R003")
+    llm_check(tmp_path, "R003")
+    incorporate_drafts(tmp_path)
+
+    config = load_config(tmp_path)
+    manuscript_candidate = next(candidate for candidate in load_candidates(config) if candidate["item_id"] == "R003")
+    approve_candidate(tmp_path, manuscript_candidate["id"])
+    apply_approved_candidates(tmp_path)
+
+    provenance = write_revision_provenance(tmp_path)
+    record = next(item for item in provenance["items"] if item["item_id"] == "R003")
+    assert record["provenance_status"] == "applied"
+    assert record["llm_draft"]["review_status"] == "accepted"
+    assert record["llm_draft"]["quality_status"] == "passed"
+    assert record["candidates"][0]["status"] == "applied"
+    assert record["candidates"][0]["apply_log"]
+    assert "R003" in render_revision_provenance(provenance, "R003")
+    assert (config.workspace / "revision_provenance.json").exists()
+    assert "Revision Provenance" in (config.workspace / "revision_provenance.md").read_text(encoding="utf-8")
+
+    validation = validate_workspace(tmp_path)
+    assert validation["ok"]
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["provenance", "R003"]) == 0
+    assert main(["provenance", "R999"]) == 1
+
+
+def test_revision_provenance_covers_proof_and_experiment_gates_and_export(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    proof_plan_for_item(tmp_path, "R001")
+    proof_approve(tmp_path, "R001", "Author verified proof workflow.")
+    experiment_contract(tmp_path, "R002")
+    (tmp_path / "results" / "demo_metrics.csv").write_text("method,error\nPINN,0.10\n", encoding="utf-8")
+    experiment_artifact(tmp_path, "R002", "results/demo_metrics.csv", "table", "Observed seed-1 comparison.")
+    (tmp_path / "backfill.tex").write_text("Observed seed-1 comparison.", encoding="utf-8")
+    experiment_incorporate(tmp_path, "R002", "tab:demo", "observed_result", "backfill.tex")
+
+    provenance = write_revision_provenance(tmp_path)
+    proof_record = next(item for item in provenance["items"] if item["item_id"] == "R001")
+    experiment_record = next(item for item in provenance["items"] if item["item_id"] == "R002")
+    assert proof_record["proof"]["approval_status"] == "approved"
+    assert not proof_record["proof"]["open_obligations"]
+    assert experiment_record["experiment"]["artifacts"]
+    assert experiment_record["experiment"]["backfill_targets"]
+
+    artifact_dir = export_artifacts(tmp_path)
+    assert (artifact_dir / "revision_provenance.json").exists()
+    assert (artifact_dir / "revision_provenance.md").exists()
+    assert "revision_provenance.md" in (artifact_dir / "MANIFEST.md").read_text(encoding="utf-8")
+
+
+def test_revision_provenance_stale_detection_validate_and_agent(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+    write_revision_provenance(tmp_path)
+
+    config = load_config(tmp_path)
+    assert not provenance_missing_or_stale(config)
+
+    candidates = load_candidates(config)
+    manuscript_candidate = next(candidate for candidate in candidates if candidate["item_id"] == "R003")
+    manuscript_candidate["content"] = "Changed after provenance snapshot."
+    (config.workspace / "candidate_edits.json").write_text(json.dumps(candidates, indent=2) + "\n", encoding="utf-8")
+
+    assert provenance_missing_or_stale(config)
+    validation = validate_workspace(tmp_path)
+    assert validation["ok"]
+    assert any("revision provenance is stale" in warning for warning in validation["warnings"])
+
+    state = build_agent_state(tmp_path)
+    assert any(task["kind"] == "provenance" and task["status"] == "pending" for task in state["tasks"])
+
+    write_revision_provenance(tmp_path)
+    assert not provenance_missing_or_stale(config)
+    refreshed = validate_workspace(tmp_path)
+    assert not any("revision provenance is stale" in warning for warning in refreshed["warnings"])
+
+
+def test_openai_compatible_provider_env_validation_and_mock_response(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+
+    for name in ("REVAGENT_LLM_BASE_URL", "REVAGENT_LLM_API_KEY", "REVAGENT_LLM_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    try:
+        draft_item_with_llm(tmp_path, "R003", provider="openai-compatible", force=True)
+        assert False, "openai-compatible provider should require environment configuration"
+    except ValueError as exc:
+        assert "missing OpenAI-compatible provider environment variables" in str(exc)
+
+    config = load_config(tmp_path)
+    assert load_llm_drafts(config) == {}
+
+    monkeypatch.setenv("REVAGENT_LLM_BASE_URL", "https://llm.example/v1")
+    monkeypatch.setenv("REVAGENT_LLM_API_KEY", "secret-test-key")
+    monkeypatch.setenv("REVAGENT_LLM_MODEL", "test-model")
+
+    class MockResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            content = {
+                "reviewer_intent": {"summary": "clarify contribution", "requested_change": "clarify", "lane": "manuscript", "risk": "low"},
+                "response_draft": "**Response.** We clarify the contribution.",
+                "candidate_text": "We clarify the contribution in the revised manuscript.",
+                "risk_notes": ["author should verify wording"],
+                "context_summary": "mock provider response",
+            }
+            return json.dumps({"choices": [{"message": {"content": json.dumps(content)}}]}).encode("utf-8")
+
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["authorization"] = req.headers["Authorization"]
+        captured["payload"] = json.loads(req.data.decode("utf-8"))
+        return MockResponse()
+
+    monkeypatch.setattr("revagent.llm.request.urlopen", fake_urlopen)
+    draft = draft_item_with_llm(tmp_path, "R003", provider="openai-compatible", force=True)
+    assert draft["provider"] == "openai-compatible"
+    assert draft["review_status"] == "drafted"
+    assert draft["quality_status"] == "unchecked"
+    assert captured["url"] == "https://llm.example/v1/chat/completions"
+    assert captured["authorization"] == "Bearer secret-test-key"
+    assert captured["payload"]["model"] == "test-model"
+    assert "secret-test-key" not in (config.workspace / "llm_drafts.json").read_text(encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["llm-draft", "R003", "--provider", "fake", "--force"]) == 0
+
+
+def test_openai_compatible_provider_malformed_response_does_not_write_draft(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+    monkeypatch.setenv("REVAGENT_LLM_BASE_URL", "https://llm.example/v1/chat/completions")
+    monkeypatch.setenv("REVAGENT_LLM_API_KEY", "secret-test-key")
+    monkeypatch.setenv("REVAGENT_LLM_MODEL", "test-model")
+
+    class BadResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps({"choices": [{"message": {"content": json.dumps({"response_draft": "missing required fields"})}}]}).encode("utf-8")
+
+    monkeypatch.setattr("revagent.llm.request.urlopen", lambda req, timeout: BadResponse())
+    try:
+        draft_item_with_llm(tmp_path, "R003", provider="openai-compatible", force=True)
+        assert False, "malformed provider response should fail"
+    except ValueError as exc:
+        assert "missing fields" in str(exc)
+
+    config = load_config(tmp_path)
+    assert load_llm_drafts(config) == {}
+
+
+def test_incorporate_drafts_uses_only_accepted_quality_passed_llm_drafts(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+    draft_all_with_llm(tmp_path)
+
+    (tmp_path / "response_edit.md").write_text("**Response.** Accepted quality-passed contribution response.", encoding="utf-8")
+    (tmp_path / "candidate_edit.tex").write_text("We add the accepted quality-passed contribution clarification.", encoding="utf-8")
+    llm_edit(tmp_path, "R003", response_file="response_edit.md", candidate_file="candidate_edit.tex")
+    llm_check(tmp_path, "R003")
+    llm_accept(tmp_path, "R002")
+
+    result = incorporate_drafts(tmp_path)
+    assert result["eligible"] == ["R003"]
+    assert any("R002" in warning for warning in result["warnings"])
+
+    config = load_config(tmp_path)
+    response_letter = (config.workspace / "response_letter.md").read_text(encoding="utf-8")
+    assert "Accepted quality-passed contribution response" in response_letter
+    assert "numerical evidence" in response_letter
+
+    manuscript_candidate = next(candidate for candidate in load_candidates(config) if candidate["item_id"] == "R003")
+    assert manuscript_candidate["status"] == "proposed"
+    assert manuscript_candidate["approved_at"] == ""
+    assert manuscript_candidate["applied_at"] == ""
+    assert "accepted quality-passed contribution" in manuscript_candidate["content"]
+    assert "LLM drafts incorporated" in (config.workspace / "decision_log.md").read_text(encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["incorporate-drafts"]) == 0
+
+
 def test_experiment_contract_artifact_hash_backfill_and_cli(tmp_path: Path, monkeypatch) -> None:
     write_demo_project(tmp_path)
     init_workspace(tmp_path, "siam", ".", "paper.tex")
@@ -440,6 +1001,59 @@ def test_experiment_contract_artifact_hash_backfill_and_cli(tmp_path: Path, monk
     assert main(["experiment-contract", "R002"]) == 0
     assert main(["experiment-artifact", "R002", "--path", "results/demo_metrics.csv", "--kind", "table", "--note", "Re-recorded artifact."]) == 0
     assert main(["experiment-incorporate", "R002", "--target", "tab:demo", "--field", "observed_result", "--text-file", "backfill.tex"]) == 0
+
+
+def test_experiment_run_preview_record_and_failure_validation(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    experiment_contract(tmp_path, "R002")
+    config = load_config(tmp_path)
+    manifests = json.loads((config.workspace / "experiment_manifests.json").read_text(encoding="utf-8"))
+    manifests["R002"]["command_template"] = f'"{sys.executable}" scripts/run_demo.py'
+    manifests["R002"]["cwd"] = str(tmp_path)
+    manifests["R002"]["expected_artifacts"] = ["results/runner_metrics.csv"]
+    (config.workspace / "experiment_manifests.json").write_text(json.dumps(manifests, indent=2) + "\n", encoding="utf-8")
+    (tmp_path / "scripts" / "run_demo.py").write_text(
+        "from pathlib import Path\n"
+        "Path('results').mkdir(exist_ok=True)\n"
+        "Path('results/runner_metrics.csv').write_text('method,error\\nPINN,0.10\\n', encoding='utf-8')\n"
+        "print('runner ok')\n",
+        encoding="utf-8",
+    )
+
+    preview = experiment_run_preview(tmp_path, "R002")
+    assert preview["ready"] is True
+    assert preview["expected_artifacts"][0]["exists"] is False
+    assert load_experiment_run_attempts(config) == []
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["experiment-run", "R002", "--dry-run"]) == 0
+    assert load_experiment_run_attempts(config) == []
+
+    attempt = experiment_run_record(tmp_path, "R002")
+    assert attempt["status"] == "succeeded"
+    assert attempt["exit_code"] == 0
+    assert attempt["detected_artifacts"][0]["exists"] is True
+    assert (config.workspace / attempt["stdout_log"]).exists()
+    assert (config.workspace / attempt["stderr_log"]).exists()
+    attempts = load_experiment_run_attempts(config)
+    assert attempts[-1]["attempt_id"] == attempt["attempt_id"]
+    updated = json.loads((config.workspace / "experiment_manifests.json").read_text(encoding="utf-8"))["R002"]
+    assert updated["artifacts"][0]["path"] == "results/runner_metrics.csv"
+    assert len(updated["artifacts"][0]["sha256"]) == 64
+    assert main(["experiment-run", "R002", "--record"]) == 0
+
+    manifests = json.loads((config.workspace / "experiment_manifests.json").read_text(encoding="utf-8"))
+    manifests["R002"]["command_template"] = f'"{sys.executable}" scripts/missing_runner.py'
+    manifests["R002"]["expected_artifacts"] = ["results/missing_runner.csv"]
+    (config.workspace / "experiment_manifests.json").write_text(json.dumps(manifests, indent=2) + "\n", encoding="utf-8")
+    failed = experiment_run_record(tmp_path, "R002")
+    assert failed["status"] == "failed"
+    validation = validate_workspace(tmp_path)
+    assert validation["ok"]
+    assert any("experiment_run_attempts.jsonl" in warning and "failed" in warning for warning in validation["warnings"])
 
 
 def test_proof_workflow_snapshots_obligations_approval_gate_and_cli(tmp_path: Path, monkeypatch) -> None:
@@ -567,6 +1181,27 @@ def test_workspace_migration_dry_run_and_apply(tmp_path: Path, monkeypatch) -> N
     (tmp_path / ".revagent" / "proof_workflows.md").unlink()
     (tmp_path / ".revagent" / "experiment_manifests.json").unlink()
     (tmp_path / ".revagent" / "experiment_manifests.md").unlink()
+    (tmp_path / ".revagent" / "agent_state.json").unlink()
+    (tmp_path / ".revagent" / "agent_state.md").unlink()
+    (tmp_path / ".revagent" / "agent_runs.jsonl").unlink()
+    (tmp_path / ".revagent" / "agent_runs.md").unlink()
+    (tmp_path / ".revagent" / "agent_policy.json").unlink()
+    (tmp_path / ".revagent" / "agent_policy.md").unlink()
+    (tmp_path / ".revagent" / "agent_report.md").unlink()
+    (tmp_path / ".revagent" / "agent_sessions.jsonl").unlink()
+    (tmp_path / ".revagent" / "agent_sessions.md").unlink()
+    (tmp_path / ".revagent" / "agent_decisions.json").unlink()
+    (tmp_path / ".revagent" / "agent_decisions.md").unlink()
+    (tmp_path / ".revagent" / "agent_eval_report.json").unlink()
+    (tmp_path / ".revagent" / "agent_eval_report.md").unlink()
+    (tmp_path / ".revagent" / "llm_drafts.json").unlink()
+    (tmp_path / ".revagent" / "llm_drafts.md").unlink()
+    (tmp_path / ".revagent" / "experiment_run_attempts.jsonl").unlink()
+    (tmp_path / ".revagent" / "experiment_run_attempts.md").unlink()
+    (tmp_path / ".revagent" / "review_analyses.json").unlink()
+    (tmp_path / ".revagent" / "review_analyses.md").unlink()
+    (tmp_path / ".revagent" / "revision_provenance.json").unlink()
+    (tmp_path / ".revagent" / "revision_provenance.md").unlink()
 
     items_path = tmp_path / ".revagent" / "review_items.json"
     import json
@@ -591,6 +1226,10 @@ def test_workspace_migration_dry_run_and_apply(tmp_path: Path, monkeypatch) -> N
             for key in ("statement_snapshot", "proof_snapshot", "proof_obligations", "workflow_status", "proof_workflow_id"):
                 item["proof_lane"].pop(key, None)
     items_path.write_text(json.dumps(items, indent=2) + "\n", encoding="utf-8")
+    (tmp_path / ".revagent" / "llm_drafts.json").write_text(
+        json.dumps({"R001": {"item_id": "R001", "provider": "fake", "draft_source": "llm_draft"}}, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
     dry = migrate_workspace(tmp_path, dry_run=True)
     assert dry["actions"]
@@ -610,10 +1249,41 @@ def test_workspace_migration_dry_run_and_apply(tmp_path: Path, monkeypatch) -> N
     assert all("lane" in item and "reviewer" in item and "planning_status" in item for item in migrated_items)
     assert (tmp_path / ".revagent" / "item_plans.json").exists()
     assert (tmp_path / ".revagent" / "item_plans.md").exists()
+    assert (tmp_path / ".revagent" / "review_analyses.json").exists()
+    assert (tmp_path / ".revagent" / "review_analyses.md").exists()
     assert (tmp_path / ".revagent" / "proof_workflows.json").exists()
     assert (tmp_path / ".revagent" / "proof_workflows.md").exists()
     assert (tmp_path / ".revagent" / "experiment_manifests.json").exists()
     assert (tmp_path / ".revagent" / "experiment_manifests.md").exists()
+    assert (tmp_path / ".revagent" / "experiment_run_attempts.jsonl").exists()
+    assert (tmp_path / ".revagent" / "experiment_run_attempts.md").exists()
+    assert (tmp_path / ".revagent" / "agent_state.json").exists()
+    assert (tmp_path / ".revagent" / "agent_state.md").exists()
+    assert (tmp_path / ".revagent" / "agent_runs.jsonl").exists()
+    assert (tmp_path / ".revagent" / "agent_runs.md").exists()
+    assert (tmp_path / ".revagent" / "agent_policy.json").exists()
+    assert (tmp_path / ".revagent" / "agent_policy.md").exists()
+    assert (tmp_path / ".revagent" / "experiment_run_attempts.jsonl").exists()
+    assert (tmp_path / ".revagent" / "experiment_run_attempts.md").exists()
+    assert (tmp_path / ".revagent" / "agent_report.md").exists()
+    assert (tmp_path / ".revagent" / "agent_dashboard.md").exists()
+    assert (tmp_path / ".revagent" / "agent_sessions.jsonl").exists()
+    assert (tmp_path / ".revagent" / "agent_sessions.md").exists()
+    assert (tmp_path / ".revagent" / "agent_decisions.json").exists()
+    assert (tmp_path / ".revagent" / "agent_decisions.md").exists()
+    assert (tmp_path / ".revagent" / "agent_eval_report.json").exists()
+    assert (tmp_path / ".revagent" / "agent_eval_report.md").exists()
+    assert (tmp_path / ".revagent" / "llm_drafts.json").exists()
+    assert (tmp_path / ".revagent" / "llm_drafts.md").exists()
+    assert (tmp_path / ".revagent" / "review_analyses.json").exists()
+    assert (tmp_path / ".revagent" / "review_analyses.md").exists()
+    assert (tmp_path / ".revagent" / "revision_provenance.json").exists()
+    assert (tmp_path / ".revagent" / "revision_provenance.md").exists()
+    migrated_draft = json.loads((tmp_path / ".revagent" / "llm_drafts.json").read_text(encoding="utf-8"))["R001"]
+    assert migrated_draft["review_status"] == "drafted"
+    assert migrated_draft["quality_status"] == "unchecked"
+    migrated_provenance = json.loads((tmp_path / ".revagent" / "revision_provenance.json").read_text(encoding="utf-8"))
+    assert migrated_provenance["source_fingerprint"]
     post = validate_workspace(tmp_path)
     assert post["ok"]
 
@@ -621,20 +1291,425 @@ def test_workspace_migration_dry_run_and_apply(tmp_path: Path, monkeypatch) -> N
     assert main(["migrate", "--dry-run"]) == 0
 
 
+def test_agent_state_files_created_on_init(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+
+    assert (tmp_path / ".revagent" / "agent_state.json").exists()
+    assert (tmp_path / ".revagent" / "agent_state.md").exists()
+    assert (tmp_path / ".revagent" / "agent_runs.jsonl").exists()
+    assert (tmp_path / ".revagent" / "agent_runs.md").exists()
+    assert (tmp_path / ".revagent" / "agent_policy.json").exists()
+    assert (tmp_path / ".revagent" / "agent_policy.md").exists()
+    assert (tmp_path / ".revagent" / "agent_report.md").exists()
+    assert (tmp_path / ".revagent" / "agent_sessions.jsonl").exists()
+    assert (tmp_path / ".revagent" / "agent_sessions.md").exists()
+    assert (tmp_path / ".revagent" / "agent_decisions.json").exists()
+    assert (tmp_path / ".revagent" / "agent_decisions.md").exists()
+    assert (tmp_path / ".revagent" / "agent_eval_report.json").exists()
+    assert (tmp_path / ".revagent" / "agent_eval_report.md").exists()
+    assert (tmp_path / ".revagent" / "llm_drafts.json").exists()
+    assert (tmp_path / ".revagent" / "llm_drafts.md").exists()
+    assert (tmp_path / ".revagent" / "review_analyses.json").exists()
+    assert (tmp_path / ".revagent" / "review_analyses.md").exists()
+    assert (tmp_path / ".revagent" / "revision_provenance.json").exists()
+    assert (tmp_path / ".revagent" / "revision_provenance.md").exists()
+    assert not provenance_missing_or_stale(load_config(tmp_path))
+    state = json.loads((tmp_path / ".revagent" / "agent_state.json").read_text(encoding="utf-8"))
+    assert state["tasks"] == []
+
+
+def test_agent_status_builds_queue_without_executing_safe_tasks(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+
+    state = build_agent_state(tmp_path)
+    kinds = [task["kind"] for task in state["tasks"]]
+    assert "plan_workspace" in kinds
+    assert "review_analysis" in kinds
+    assert "plan_item" in kinds
+    assert "proof_plan" in kinds
+    assert "experiment_contract" in kinds
+    assert "validate" in kinds
+    assert not (tmp_path / ".revagent" / "proof_workflows.json").read_text(encoding="utf-8").strip("{}\n ")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["agent-status"]) == 0
+    persisted = json.loads((tmp_path / ".revagent" / "agent_state.json").read_text(encoding="utf-8"))
+    assert persisted["summary"]["pending"] >= 1
+
+
+def test_agent_run_limit_executes_one_safe_task(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["agent-run", "--limit", "1"]) == 0
+    state = json.loads((tmp_path / ".revagent" / "agent_state.json").read_text(encoding="utf-8"))
+    assert state["summary"]["done"] == 1
+    assert state["tasks"][0]["kind"] == "plan_workspace"
+    assert state["tasks"][0]["status"] == "done"
+    runs = load_agent_runs(load_config(tmp_path))
+    assert len(runs) == 1
+    assert runs[0]["kind"] == "plan_workspace"
+    assert runs[0]["status"] == "done"
+    assert runs[0]["fingerprint"]
+
+
+def test_agent_run_ledger_skips_unchanged_successful_task(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+
+    config = load_config(tmp_path)
+    initial = build_agent_state(tmp_path)
+    first_task = initial["tasks"][0]
+    (config.workspace / "agent_runs.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "manual-test",
+                "task_id": first_task["id"],
+                "kind": first_task["kind"],
+                "item_id": first_task.get("item_id", ""),
+                "fingerprint": first_task["fingerprint"],
+                "status": "done",
+                "started_at": "manual-test",
+                "finished_at": "manual-test",
+                "result": "already done",
+                "error": "",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    second = run_agent_once(tmp_path, limit=1)
+    assert second["tasks"][0]["status"] == "skipped"
+
+    runs = load_agent_runs(config)
+    assert [entry["status"] for entry in runs[:2]] == ["done", "skipped"]
+    assert runs[0]["fingerprint"] == runs[1]["fingerprint"]
+    assert runs[1]["task_identity"]
+    assert "dependencies" in runs[1]
+
+
+def test_agent_marks_task_stale_when_input_dependencies_change(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+
+    first = run_agent_once(tmp_path, limit=1)
+    assert first["tasks"][0]["kind"] == "validate"
+    assert first["tasks"][0]["status"] == "done"
+
+    paper = tmp_path / "paper.tex"
+    paper.write_text(paper.read_text(encoding="utf-8").replace("Demo table.", "Demo table with revised caption."), encoding="utf-8")
+
+    state = build_agent_state(tmp_path)
+    validate_task = next(task for task in state["tasks"] if task["kind"] == "validate")
+    assert validate_task["status"] == "stale"
+    assert validate_task["stale_reason"] == "input dependencies changed since the last recorded run"
+    assert validate_task["last_run_status"] == "done"
+
+    rerun = run_agent_once(tmp_path, limit=1)
+    assert rerun["tasks"][0]["kind"] == "validate"
+    assert rerun["tasks"][0]["status"] == "done"
+
+
+def test_agent_next_and_report_show_manual_gates(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+
+    state = run_agent_once(tmp_path, until_blocked=True)
+    assert state["summary"]["blocked"] >= 1
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["agent-next"]) == 0
+    assert main(["agent-report"]) == 0
+    assert main(["monitor"]) == 0
+    report = (tmp_path / ".revagent" / "agent_report.md").read_text(encoding="utf-8")
+    assert "Manual Gates" in report
+    assert "proof_approval_required" in report or "llm_review_required" in report
+    dashboard = (tmp_path / ".revagent" / "agent_dashboard.md").read_text(encoding="utf-8")
+    assert "Agent Dashboard" in dashboard
+    assert "Next Action" in dashboard
+    assert "Manual Decisions" in dashboard
+    assert "Review analysis:" in dashboard
+    assert "proof_approval_required" in dashboard or "llm_review_required" in dashboard
+
+
+def test_agent_session_plan_resume_blockers_and_complete_check(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["agent-plan", "--goal", "rebuttal-draft"]) == 0
+    sessions = load_agent_sessions(load_config(tmp_path))
+    assert len(sessions) == 1
+    assert sessions[0]["goal"] == "rebuttal-draft"
+    assert sessions[0]["status"] == "planned"
+    assert any(step["phase"] == "drafting" for step in sessions[0]["steps"])
+
+    assert main(["agent-resume"]) == 0
+    resumed = load_agent_sessions(load_config(tmp_path))[-1]
+    assert resumed["session_id"] == sessions[0]["session_id"]
+    assert resumed["status"] == "blocked"
+    assert resumed["linked_run_ids"]
+    assert resumed["manual_gates"]
+    assert any(gate["kind"] in {"proof_approval_required", "experiment_result_required", "llm_review_required"} for gate in resumed["manual_gates"])
+
+    assert main(["agent-resume", "--watch", "--interval", "0", "--cycles", "1"]) == 0
+    watched = load_agent_sessions(load_config(tmp_path))[-1]
+    assert watched["status"] == "blocked"
+    assert watched["manual_gates"]
+
+    assert main(["agent-blockers"]) == 0
+    assert main(["agent-complete-check"]) == 0
+    checked = load_agent_sessions(load_config(tmp_path))[-1]
+    assert checked["status"] == "blocked"
+    assert "Agent Sessions" in (tmp_path / ".revagent" / "agent_sessions.md").read_text(encoding="utf-8")
+
+
+def test_agent_decision_queue_tracks_resolve_and_dismiss(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["agent-plan", "--goal", "rebuttal-draft"]) == 0
+    assert main(["agent-resume"]) == 0
+    assert main(["agent-decisions"]) == 0
+
+    config = load_config(tmp_path)
+    decisions = load_agent_decisions(config)
+    open_decisions = [decision for decision in decisions if decision["status"] == "open"]
+    assert open_decisions
+    assert any(decision["kind"] == "proof_approval_required" for decision in open_decisions)
+    assert any(decision["risk"] == "high" for decision in open_decisions)
+    assert "Agent Decisions" in (config.workspace / "agent_decisions.md").read_text(encoding="utf-8")
+
+    proof_decision = next(decision for decision in open_decisions if decision["kind"] == "proof_approval_required")
+    assert main(["agent-decision", proof_decision["decision_id"]]) == 0
+    assert main(["agent-decision-resolve", proof_decision["decision_id"], "--note", "too early"]) == 1
+
+    assert main(["proof-approve", proof_decision["subject_id"], "--note", "Author verified proof workflow."]) == 0
+    assert main(["agent-decision-resolve", proof_decision["decision_id"], "--note", "Proof workflow approved."]) == 0
+    resolved = next(decision for decision in load_agent_decisions(config) if decision["decision_id"] == proof_decision["decision_id"])
+    assert resolved["status"] == "resolved"
+    assert resolved["note"] == "Proof workflow approved."
+
+    remaining_open = [decision for decision in load_agent_decisions(config) if decision["status"] == "open"]
+    dismissable = next(decision for decision in remaining_open if decision["decision_id"] != proof_decision["decision_id"])
+    assert main(["agent-decision-dismiss", dismissable["decision_id"], "--note", "Author will handle outside RevAgent."]) == 0
+    dismissed = next(decision for decision in load_agent_decisions(config) if decision["decision_id"] == dismissable["decision_id"])
+    assert dismissed["status"] == "dismissed"
+    assert not any(candidate["status"] in {"approved", "applied"} for candidate in load_candidates(config))
+
+
+def test_agent_eval_runs_builtin_fixtures_and_writes_report(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["agent-eval", "--all"]) == 0
+    report = json.loads((tmp_path / ".revagent" / "agent_eval_report.json").read_text(encoding="utf-8"))
+    assert report["ok"] is True
+    assert {fixture["fixture"] for fixture in report["fixtures"]} == {"full-revision", "safety-gates", "stale-input"}
+    assert all(fixture["ok"] for fixture in report["fixtures"])
+    markdown = (tmp_path / ".revagent" / "agent_eval_report.md").read_text(encoding="utf-8")
+    assert "Agent Eval Report" in markdown
+    assert "stale_detected" in markdown
+
+    assert main(["agent-eval", "--fixture", "safety-gates"]) == 0
+    focused = json.loads((tmp_path / ".revagent" / "agent_eval_report.json").read_text(encoding="utf-8"))
+    assert [fixture["fixture"] for fixture in focused["fixtures"]] == ["safety-gates"]
+
+
+def test_agent_session_validation_warns_on_bad_jsonl(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    (tmp_path / ".revagent" / "agent_sessions.jsonl").write_text('{"status":"bogus","linked_run_ids":["missing-run"]}\n{bad\n', encoding="utf-8")
+
+    validation = validate_workspace(tmp_path)
+    assert validation["ok"]
+    assert any("agent_sessions.jsonl" in warning for warning in validation["warnings"])
+    assert any("invalid status" in warning for warning in validation["warnings"])
+    assert any("unknown run_id" in warning for warning in validation["warnings"])
+
+
+def test_validate_warns_on_invalid_agent_decisions(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    (tmp_path / ".revagent" / "agent_decisions.json").write_text(
+        json.dumps(
+            [
+                {"decision_id": "D001", "status": "invalid"},
+                {"decision_id": "D001", "status": "resolved"},
+                {"status": "open"},
+            ],
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    validation = validate_workspace(tmp_path)
+    assert validation["ok"]
+    assert any("invalid status" in warning for warning in validation["warnings"])
+    assert any("duplicate decision_id D001" in warning for warning in validation["warnings"])
+    assert any("without decision_id" in warning for warning in validation["warnings"])
+    assert any("resolved without resolved_at" in warning for warning in validation["warnings"])
+
+
+def test_validate_warns_on_invalid_agent_eval_report(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    (tmp_path / ".revagent" / "agent_eval_report.json").write_text(json.dumps({"ok": True, "fixtures": "bad"}) + "\n", encoding="utf-8")
+
+    validation = validate_workspace(tmp_path)
+    assert validation["ok"]
+    assert any("agent_eval_report.json fixtures field must be a list" in warning for warning in validation["warnings"])
+
+
+def test_validate_warns_on_invalid_review_analyses(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    (tmp_path / ".revagent" / "review_analyses.json").write_text(
+        json.dumps(
+            {
+                "R999": {"item_id": "R999", "intent_summary": "unknown"},
+                "R001": {"item_id": "R002"},
+                "R002": "bad",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    validation = validate_workspace(tmp_path)
+    assert validation["ok"]
+    assert any("unknown item id R999" in warning for warning in validation["warnings"])
+    assert any("mismatched item_id R002" in warning for warning in validation["warnings"])
+    assert any("analysis R002 must be an object" in warning for warning in validation["warnings"])
+    assert any("R003 has no review analysis" in warning for warning in validation["warnings"])
+
+
+def test_validate_warns_on_malformed_agent_run_ledger(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    (tmp_path / ".revagent" / "agent_runs.jsonl").write_text("{bad json\n", encoding="utf-8")
+    (tmp_path / ".revagent" / "experiment_run_attempts.jsonl").write_text("{bad json\n", encoding="utf-8")
+
+    validation = validate_workspace(tmp_path)
+    assert validation["ok"]
+    assert any("agent_runs.jsonl" in warning for warning in validation["warnings"])
+    assert any("experiment_run_attempts.jsonl" in warning for warning in validation["warnings"])
+
+
+def test_agent_run_until_blocked_converges_and_blocks_author_decisions(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+
+    state = run_agent_once(tmp_path, until_blocked=True)
+    kinds_by_status = {(task["kind"], task["status"]) for task in state["tasks"]}
+    assert ("proof_approval_required", "blocked") in kinds_by_status
+    assert ("experiment_result_required", "blocked") in kinds_by_status
+    assert any(task["kind"] == "draft" and task["status"] == "done" for task in state["tasks"])
+    assert any(task["kind"] == "llm_draft" and task["status"] == "done" for task in state["tasks"])
+    assert ("llm_review_required", "blocked") in kinds_by_status
+    assert any(task["kind"] == "validate" and task["status"] == "done" for task in state["tasks"])
+    assert not any(task["kind"] in {"plan_workspace", "review_analysis", "plan_item", "proof_plan", "experiment_contract", "draft", "propose", "llm_draft"} and task["status"] == "pending" for task in state["tasks"])
+
+    config = load_config(tmp_path)
+    candidates = load_candidates(config)
+    assert candidates
+    assert set(load_review_analyses(config)) == {"R001", "R002", "R003"}
+    assert load_llm_drafts(config)
+    assert all(draft.get("review_status") == "drafted" for draft in load_llm_drafts(config).values())
+    assert not any(candidate["status"] in {"approved", "applied"} for candidate in candidates)
+    assert not (config.workspace / "apply_log.jsonl").exists()
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["agent-run", "--until-blocked"]) == 0
+
+
+def test_agent_checks_accepted_llm_drafts_and_blocks_failed_quality(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+    draft_all_with_llm(tmp_path)
+    llm_accept(tmp_path, "R001")
+
+    state = run_agent_once(tmp_path, until_blocked=True)
+    assert any(task["kind"] == "llm_check" and task["status"] == "done" for task in state["tasks"])
+    assert any(task["kind"] == "llm_quality_required" and task["status"] == "blocked" for task in state["tasks"])
+
+    config = load_config(tmp_path)
+    drafts = load_llm_drafts(config)
+    assert drafts["R001"]["quality_status"] == "failed"
+    assert not any(candidate["status"] in {"approved", "applied"} for candidate in load_candidates(config))
+
+
 def test_public_subsystem_modules_expose_stable_boundaries(tmp_path: Path) -> None:
     write_demo_project(tmp_path)
     graph = discover_tex_graph(tmp_path, "paper.tex")
     assert graph["root_file"] == "paper.tex"
-    from revagent import candidates, core, experiments, latex, planning, proofs, rendering, reviews, validation, workspace
+    from revagent import agent, candidates, core, experiments, latex, llm, planning, proofs, provenance, rendering, review_analysis, reviews, validation, workspace
 
+    assert agent.build_agent_state is build_agent_state
     assert workspace.init_workspace is init_workspace
     assert latex.latex_index is latex_index
     assert reviews.ingest_comments is ingest_comments
     assert candidates.propose_candidates is propose_candidates
+    assert llm.draft_item_with_llm is draft_item_with_llm
+    assert llm.llm_check_all is llm_check_all
     assert planning.plan_item is plan_item
     assert proofs.proof_plan_for_item is proof_plan_for_item
     assert experiments.experiment_contract is experiment_contract
+    assert experiments.experiment_run_preview is experiment_run_preview
     assert rendering.create_draft is create_draft
+    assert rendering.incorporate_drafts is incorporate_drafts
+    assert provenance.write_revision_provenance is write_revision_provenance
+    assert review_analysis.analyze_review_item is analyze_review_item
     assert validation.validate_workspace is validate_workspace
     assert core.init_workspace is init_workspace
+    assert core.draft_all_with_llm is draft_all_with_llm
+    assert core.analyze_review_item is analyze_review_item
+    assert core.write_revision_provenance is write_revision_provenance
     assert core.proof_plan_for_item is proof_plan_for_item
+
+    for module in (agent, candidates, experiments, latex, llm, planning, proofs, provenance, rendering, review_analysis, reviews, validation, workspace):
+        source = Path(module.__file__).read_text(encoding="utf-8")
+        assert "._core_impl" not in source
+    assert "._core_impl" not in Path(core.__file__).read_text(encoding="utf-8")
+
+
+def test_cli_smoke_revision_subsystem_flow(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["init", "--journal", "siam", "--tex-root", ".", "--main-tex", "paper.tex"]) == 0
+    assert main(["ingest-comments", "comments.md"]) == 0
+    assert main(["plan"]) == 0
+    assert main(["analyze-review", "--all"]) == 0
+    assert main(["review-analysis", "R001"]) == 0
+    assert main(["plan-item", "R001"]) == 0
+    assert main(["proof-plan", "R001"]) == 0
+    assert main(["experiment-contract", "R002"]) == 0
+    assert main(["propose"]) == 0
+    assert main(["llm-draft", "--all"]) == 0
+    assert main(["llm-review", "R003"]) == 0
+    assert main(["llm-accept", "R003"]) == 0
+    assert main(["llm-check", "R003"]) == 0
+    assert main(["incorporate-drafts"]) == 0
+    assert main(["provenance"]) == 0
+    assert main(["validate"]) == 0
