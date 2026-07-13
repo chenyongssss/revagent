@@ -1,5 +1,7 @@
 import hashlib
 import json
+import shutil
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -87,6 +89,13 @@ from revagent.core import (
 from revagent.profiles import load_profile
 from revagent.workspace import CURRENT_SCHEMA_VERSION, migrate_workspace, render_migration_report
 from revagent.latex import discover_tex_graph
+from revagent.external_agent import render_external_agent_run_detail, render_external_agent_runs, render_external_agent_supervision, supervisor_observations_snapshot
+from revagent.evolution import append_runtime_event, apply_evolution, approve_evolution, create_worker_snapshot, evaluate_worker, plan_evolution
+from revagent.project_runtime import authorize_remote, evaluate_review_item, initialize_project_runtime, project_status, run_project_cycle, set_project_paused
+from revagent.review_workers import authorize_experiment, create_review_snapshot, plan_review_workers, run_authorized_experiment
+from revagent.review_rubric import run_review_rubric
+from revagent.benchmark import run_benchmark
+from revagent.project_runtime import recover_project_runtime, service_health
 
 
 def write_demo_project(tmp_path: Path) -> None:
@@ -1777,6 +1786,402 @@ def test_supervisor_workers_create_prompts_and_queue_runs(tmp_path: Path, monkey
     assert runs[0]["status"] == "queued"
     assert Path(runs[0]["launch_script"]).exists()
     assert main(["supervisor-workers", "--workers", "0"]) == 1
+
+
+def test_supervisor_observe_records_queued_worker_artifacts_without_mutating_runs(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    (tmp_path / "plan.md").write_text("# RevAgent Iteris-Style Roadmap\n\n## Phase 10 Scope\n\nDone.\n", encoding="utf-8")
+    monkeypatch.setattr("revagent.external_agent.codex_command", lambda: "codex")
+    monkeypatch.chdir(tmp_path)
+
+    queued = build_supervisor_workers(tmp_path, workers=1, queue=True)
+    run_id = queued["assignments"][0]["external_run_id"]
+    before = (tmp_path / ".revagent" / "external_agent_runs.jsonl").read_text(encoding="utf-8")
+
+    assert main(["supervisor-observe", run_id, "--update-plan"]) == 0
+    after = (tmp_path / ".revagent" / "external_agent_runs.jsonl").read_text(encoding="utf-8")
+    assert after == before
+    observations = (tmp_path / ".revagent" / "supervisor_observations.jsonl").read_text(encoding="utf-8")
+    assert run_id in observations
+    assert '"health": "ready_to_launch"' in observations
+    assert '"infers_process_liveness": false' in observations
+    assert "Supervisor Observations" in (tmp_path / ".revagent" / "supervisor_observations.md").read_text(encoding="utf-8")
+    assert (tmp_path / "plan.md").read_text(encoding="utf-8").count("## Phase 11 Scope") == 1
+    assert main(["supervisor-observe", "missing"]) == 1
+
+
+def test_supervisor_observation_reads_history_without_mutating_ledgers(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    (tmp_path / "plan.md").write_text("# RevAgent Iteris-Style Roadmap\n\n## Phase 11 Scope\n\nDone.\n", encoding="utf-8")
+    monkeypatch.setattr("revagent.external_agent.codex_command", lambda: "codex")
+    monkeypatch.chdir(tmp_path)
+
+    queued = build_supervisor_workers(tmp_path, workers=1, queue=True)
+    run_id = queued["assignments"][0]["external_run_id"]
+    assert main(["supervisor-observe", run_id]) == 0
+    config = load_config(tmp_path)
+    runs_before = (config.workspace / "external_agent_runs.jsonl").read_text(encoding="utf-8")
+    observations_before = (config.workspace / "supervisor_observations.jsonl").read_text(encoding="utf-8")
+
+    assert main(["supervisor-observation", "--update-plan"]) == 0
+    assert main(["supervisor-observation", run_id]) == 0
+    assert main(["supervisor-observation", "missing"]) == 1
+    assert (config.workspace / "external_agent_runs.jsonl").read_text(encoding="utf-8") == runs_before
+    assert (config.workspace / "supervisor_observations.jsonl").read_text(encoding="utf-8") == observations_before
+    assert (tmp_path / "plan.md").read_text(encoding="utf-8").count("## Phase 12 Scope") == 1
+
+
+def test_validate_warns_on_malformed_or_unsafe_supervisor_observations(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    observations_path = tmp_path / ".revagent" / "supervisor_observations.jsonl"
+    observations_path.write_text(
+        "not-json\n"
+        + json.dumps(
+            {
+                "run_id": "RUN001",
+                "health": "ready_to_launch",
+                "safety": {"launches_processes": True},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = validate_workspace(tmp_path)
+    assert any("invalid JSONL in supervisor_observations.jsonl" in warning for warning in result["warnings"])
+    assert any("unsafe or incomplete safety declaration" in warning for warning in result["warnings"])
+
+
+def test_validate_cross_checks_latest_supervisor_observations_read_only(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    config = load_config(tmp_path)
+    runs_path = config.workspace / "external_agent_runs.jsonl"
+    runs_path.write_text(
+        json.dumps({"run_id": "RUN001", "backend": "codex", "prompt_path": "", "status": "done"}) + "\n",
+        encoding="utf-8",
+    )
+    safety = {
+        "launches_processes": False,
+        "mutates_external_run_ledger": False,
+        "infers_process_liveness": False,
+    }
+    observations_path = config.workspace / "supervisor_observations.jsonl"
+    observations_path.write_text(
+        "".join(
+            json.dumps(record) + "\n"
+            for record in [
+                {"run_id": "RUN001", "run_status": "queued", "health": "blocked", "safety": safety},
+                {"run_id": "RUN001", "run_status": "done", "health": "not_queued", "safety": safety},
+                {"run_id": "GONE", "run_status": "queued", "health": "blocked", "safety": safety},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runs_before = runs_path.read_text(encoding="utf-8")
+    observations_before = observations_path.read_text(encoding="utf-8")
+
+    result = validate_workspace(tmp_path)
+    assert any("references unknown external run GONE" in warning for warning in result["warnings"])
+    assert not any("is stale for RUN001" in warning for warning in result["warnings"])
+    assert runs_path.read_text(encoding="utf-8") == runs_before
+    assert observations_path.read_text(encoding="utf-8") == observations_before
+
+    observations_path.write_text(
+        observations_before + json.dumps({"run_id": "RUN001", "run_status": "queued", "health": "blocked", "safety": safety}) + "\n",
+        encoding="utf-8",
+    )
+    assert any("is stale for RUN001" in warning for warning in validate_workspace(tmp_path)["warnings"])
+
+
+def test_supervisor_feedback_and_plan_summarize_blocked_observations_read_only(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    (tmp_path / "plan.md").write_text("# RevAgent Iteris-Style Roadmap\n\n## Phase 12 Scope\n\nDone.\n", encoding="utf-8")
+    config = load_config(tmp_path)
+    observation = {
+        "version": 1,
+        "observed_at": "2026-07-10T00:00:00+00:00",
+        "run_id": "RUN001",
+        "run_status": "queued",
+        "health": "blocked",
+        "artifacts": {},
+        "next_command": "revagent run-recover RUN001 --dry-run",
+        "safety": {
+            "launches_processes": False,
+            "mutates_external_run_ledger": False,
+            "infers_process_liveness": False,
+        },
+    }
+    observations_path = config.workspace / "supervisor_observations.jsonl"
+    observations_path.write_text(json.dumps(observation) + "\n", encoding="utf-8")
+    runs_path = config.workspace / "external_agent_runs.jsonl"
+    runs_before = runs_path.read_text(encoding="utf-8")
+    observations_before = observations_path.read_text(encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    feedback = build_supervisor_feedback(tmp_path)
+    assert feedback["observation_summary"]["count"] == 1
+    assert any(item["kind"] == "recover_blocked_worker_observation" for item in feedback["recommendations"])
+    plan = build_supervisor_plan(tmp_path)
+    assert plan["observation_summary"]["latest"][0]["next_command"] == "revagent run-recover RUN001 --dry-run"
+    assert "Latest Worker Observations" in (config.workspace / "supervisor_feedback.md").read_text(encoding="utf-8")
+    assert "revagent run-recover RUN001 --dry-run" in (config.workspace / "supervisor_plan.md").read_text(encoding="utf-8")
+    assert runs_path.read_text(encoding="utf-8") == runs_before
+    assert observations_path.read_text(encoding="utf-8") == observations_before
+
+
+def test_monitor_and_dashboard_render_worker_observation_read_only(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    config = load_config(tmp_path)
+    observation = {
+        "run_id": "RUN002",
+        "run_status": "queued",
+        "health": "blocked",
+        "next_command": "revagent run-recover RUN002 --dry-run",
+    }
+    observations_path = config.workspace / "supervisor_observations.jsonl"
+    observations_path.write_text(json.dumps(observation) + "\n", encoding="utf-8")
+    runs_path = config.workspace / "external_agent_runs.jsonl"
+    observations_before = observations_path.read_text(encoding="utf-8")
+    runs_before = runs_path.read_text(encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["monitor"]) == 0
+    write_dashboard_html(tmp_path)
+    monitor = (config.workspace / "monitor.md").read_text(encoding="utf-8")
+    dashboard = (config.workspace / "dashboard" / "index.html").read_text(encoding="utf-8")
+    assert "Worker Observations" in monitor
+    assert "revagent run-recover RUN002 --dry-run" in monitor
+    assert "Worker Observations" in dashboard
+    assert "revagent run-recover RUN002 --dry-run" in dashboard
+    assert observations_path.read_text(encoding="utf-8") == observations_before
+    assert runs_path.read_text(encoding="utf-8") == runs_before
+
+
+def test_monitor_and_dashboard_tolerate_malformed_worker_observations(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    config = load_config(tmp_path)
+    observations_path = config.workspace / "supervisor_observations.jsonl"
+    observations_path.write_text("[]\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["monitor"]) == 0
+    write_dashboard_html(tmp_path)
+    assert "Observation ledger is unreadable" in (config.workspace / "monitor.md").read_text(encoding="utf-8")
+    assert "Observation ledger is unreadable" in (config.workspace / "dashboard" / "index.html").read_text(encoding="utf-8")
+    assert any("must be an object" in warning for warning in validate_workspace(tmp_path)["warnings"])
+
+
+def test_run_supervise_renders_latest_worker_observation_read_only(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    config = load_config(tmp_path)
+    runs_path = config.workspace / "external_agent_runs.jsonl"
+    run = {"run_id": "RUN016", "status": "queued", "prompt_path": "", "launch_script": ""}
+    runs_path.write_text(json.dumps(run) + "\n", encoding="utf-8")
+    observations_path = config.workspace / "supervisor_observations.jsonl"
+    observation = {
+        "run_id": "RUN016",
+        "run_status": "queued",
+        "health": "blocked",
+        "next_command": "revagent run-recover RUN016 --dry-run",
+    }
+    observations_path.write_text(json.dumps(observation) + "\n", encoding="utf-8")
+    runs_before = runs_path.read_text(encoding="utf-8")
+
+    rendered = render_external_agent_supervision(load_external_agent_runs(config), supervisor_observations_snapshot(config))
+    assert "observation: current status=queued health=blocked" in rendered
+    assert "revagent run-recover RUN016 --dry-run" in rendered
+
+    stale = dict(observation, run_status="done")
+    observations_path.write_text(json.dumps(stale) + "\n", encoding="utf-8")
+    stale_observations_before = observations_path.read_text(encoding="utf-8")
+    rendered = render_external_agent_supervision(load_external_agent_runs(config), supervisor_observations_snapshot(config))
+    assert "observation: stale status=done health=blocked" in rendered
+    assert runs_path.read_text(encoding="utf-8") == runs_before
+    assert observations_path.read_text(encoding="utf-8") == stale_observations_before
+
+
+def test_run_status_detail_renders_worker_observation_read_only(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    config = load_config(tmp_path)
+    run = {"run_id": "RUN017", "status": "queued", "backend": "codex"}
+    runs_path = config.workspace / "external_agent_runs.jsonl"
+    runs_path.write_text(json.dumps(run) + "\n", encoding="utf-8")
+    observations_path = config.workspace / "supervisor_observations.jsonl"
+    observation = {
+        "run_id": "RUN017",
+        "run_status": "queued",
+        "health": "ready_to_launch",
+        "next_command": "revagent run-log RUN017 --artifact launch",
+    }
+    observations_path.write_text(json.dumps(observation) + "\n", encoding="utf-8")
+    runs_before = runs_path.read_text(encoding="utf-8")
+    observations_before = observations_path.read_text(encoding="utf-8")
+
+    detail = render_external_agent_run_detail(run, supervisor_observations_snapshot(config))
+    assert "Worker observation: current status=queued health=ready_to_launch" in detail
+    assert "revagent run-log RUN017 --artifact launch" in detail
+
+    observations_path.write_text(json.dumps(dict(observation, run_status="done")) + "\n", encoding="utf-8")
+    stale_before = observations_path.read_text(encoding="utf-8")
+    detail = render_external_agent_run_detail(run, supervisor_observations_snapshot(config))
+    assert "Worker observation: stale status=done health=ready_to_launch" in detail
+    assert runs_path.read_text(encoding="utf-8") == runs_before
+    assert observations_path.read_text(encoding="utf-8") == stale_before
+
+
+def test_run_status_history_renders_worker_observation_read_only(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    config = load_config(tmp_path)
+    runs = [
+        {"run_id": "RUN018A", "status": "queued", "backend": "codex"},
+        {"run_id": "RUN018B", "status": "done", "backend": "codex"},
+    ]
+    runs_path = config.workspace / "external_agent_runs.jsonl"
+    runs_path.write_text("".join(json.dumps(run) + "\n" for run in runs), encoding="utf-8")
+    observations_path = config.workspace / "supervisor_observations.jsonl"
+    observations_path.write_text(
+        "".join(
+            json.dumps(record) + "\n"
+            for record in [
+                {"run_id": "RUN018A", "run_status": "queued", "health": "ready_to_launch"},
+                {"run_id": "RUN018B", "run_status": "queued", "health": "blocked"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runs_before = runs_path.read_text(encoding="utf-8")
+    observations_before = observations_path.read_text(encoding="utf-8")
+
+    rendered = render_external_agent_runs(runs, supervisor_observations_snapshot(config))
+    assert "RUN018A" in rendered and "observation: current health=ready_to_launch" in rendered
+    assert "RUN018B" in rendered and "observation: stale health=blocked" in rendered
+    assert runs_path.read_text(encoding="utf-8") == runs_before
+    assert observations_path.read_text(encoding="utf-8") == observations_before
+
+    observations_path.write_text("[]\n", encoding="utf-8")
+    rendered = render_external_agent_runs(runs, supervisor_observations_snapshot(config))
+    assert "Worker observation ledger is unreadable" in rendered
+
+
+def test_snapshot_evaluation_and_manual_evolution_apply(tmp_path: Path, monkeypatch) -> None:
+    source_root = Path(__file__).resolve().parents[1]
+    for name in ("pyproject.toml", "plan.md"):
+        shutil.copy2(source_root / name, tmp_path / name)
+    shutil.copytree(source_root / "src", tmp_path / "src")
+    shutil.copytree(source_root / "tests", tmp_path / "tests")
+    (tmp_path / "paper.tex").write_text("\\documentclass{article}\n\\begin{document}x\\end{document}\n", encoding="utf-8")
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    config = load_config(tmp_path)
+    prompt = tmp_path / "worker-prompt.md"
+    prompt.write_text("safe worker\n", encoding="utf-8")
+    run = {"run_id": "RUN-EVO", "status": "queued", "backend": "codex", "command": sys.executable, "prompt_path": str(prompt)}
+    (config.workspace / "external_agent_runs.jsonl").write_text(json.dumps(run) + "\n", encoding="utf-8")
+
+    snapshot = create_worker_snapshot(tmp_path, "RUN-EVO")
+    snapshot_root = Path(str(snapshot["path"]))
+    (snapshot_root / "src" / "revagent" / "evolution_marker.py").write_text("VALUE = 1\n", encoding="utf-8")
+    append_runtime_event(
+        config,
+        {"run_id": "RUN-EVO", "state": "completed", "pid": 1, "process_created_at": 0, "exit_code": 0},
+    )
+
+    class Result:
+        returncode = 0
+        stdout = "passed"
+        stderr = ""
+
+    monkeypatch.setattr("revagent.evolution.subprocess.run", lambda *args, **kwargs: Result())
+    evaluation = evaluate_worker(tmp_path, "RUN-EVO")
+    assert evaluation["status"] == "passed"
+    assert Path(str(evaluation["patch_path"])).exists()
+    proposals = plan_evolution(tmp_path)
+    assert proposals[0]["status"] == "proposed"
+    approved = approve_evolution(tmp_path, "P001", "Reviewed isolated source change.")
+    assert approved["status"] == "approved"
+    applied = apply_evolution(tmp_path, "P001")
+    assert applied["status"] == "applied"
+    assert (tmp_path / "src" / "revagent" / "evolution_marker.py").read_text(encoding="utf-8") == "VALUE = 1\n"
+    assert Path(str(applied["backup_path"])).exists()
+
+
+def test_persistent_review_project_runtime_advances_reversible_tasks(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+
+    initialized = initialize_project_runtime(tmp_path)
+    assert initialized["created"] == 9
+    assert (tmp_path / ".revagent" / "runtime.sqlite3").exists()
+    assert len(project_status(tmp_path)["tasks"]) == 9
+    for _ in range(6):
+        run_project_cycle(tmp_path, workers=2)
+    status = project_status(tmp_path)
+    assert status["counts"]["done"] == 9
+    consent = authorize_remote(tmp_path, "R001:analyze_review", "openai-compatible", "review-model", "semantic rubric", ["review_comment", "response_draft"])
+    assert consent["task_id"] == "R001:analyze_review"
+    result = evaluate_review_item(tmp_path, "R001")
+    assert result["item_id"] == "R001"
+    assert (tmp_path / ".revagent" / "review_evidence.json").exists()
+    set_project_paused(tmp_path, True)
+    assert project_status(tmp_path)["paused"] is True
+
+
+def test_review_workers_snapshots_experiments_and_one_use_rubric(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    initialize_project_runtime(tmp_path)
+    for _ in range(6):
+        run_project_cycle(tmp_path, workers=2)
+    config = load_config(tmp_path)
+
+    proof_worker = plan_review_workers(tmp_path, "R001", backend="codex")[0]
+    snapshot = create_review_snapshot(tmp_path, proof_worker["worker_id"])
+    assert Path(str(snapshot["path"])).exists()
+    assert ".revagent" in snapshot["excluded"]
+
+    experiment_workers = plan_review_workers(tmp_path, "R002", backend="codex")
+    experiment_worker = next(worker for worker in experiment_workers if worker["role"] == "experiment")
+    create_review_snapshot(tmp_path, experiment_worker["worker_id"])
+    authorization = authorize_experiment(tmp_path, experiment_worker["worker_id"], "python -c \"print('ok')\"", ".", 30, 1, 128, [])
+    result = run_authorized_experiment(tmp_path, authorization["authorization_id"])
+    assert result["status"] == "completed"
+
+    evaluate_review_item(tmp_path, "R001")
+    remote = authorize_remote(tmp_path, "R001:collect_evidence", "fake", "fake", "rubric", ["project_snapshot"])
+    rubric = run_review_rubric(tmp_path, "R001", int(remote["authorization_id"]))
+    assert rubric["authorization_id"] == remote["authorization_id"]
+    with pytest.raises(ValueError, match="used or expired"):
+        run_review_rubric(tmp_path, "R001", int(remote["authorization_id"]))
+
+
+def test_runtime_recovery_health_and_synthetic_benchmark(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    initialize_project_runtime(tmp_path)
+    db_path = tmp_path / ".revagent" / "runtime.sqlite3"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("UPDATE tasks SET status='running', attempts=1, lease_until='2000-01-01T00:00:00+00:00' WHERE task_id='R001:analyze_review'")
+    recovered = recover_project_runtime(tmp_path)
+    assert recovered["recovered"][0]["status"] == "pending"
+    assert service_health(tmp_path)["runtime_db"] is True
+    fixture = Path(__file__).resolve().parents[1] / "benchmarks" / "synthetic" / "basic"
+    report = run_benchmark(tmp_path, fixture)
+    assert report["metrics"]["task_completion_rate"] == 1.0
+    assert (tmp_path / ".revagent" / "benchmark_report.json").exists()
 
 
 def test_agent_decision_queue_tracks_resolve_and_dismiss(tmp_path: Path, monkeypatch) -> None:

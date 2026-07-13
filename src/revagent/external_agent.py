@@ -55,11 +55,42 @@ def load_external_agent_runs(config: Config) -> list[dict[str, object]]:
     return records
 
 
-def render_external_agent_runs(runs: list[dict[str, object]]) -> str:
+def supervisor_observations_snapshot(config: Config) -> dict[str, object]:
+    """Read the latest worker observation per run for operator-facing displays."""
+    path = config.workspace / "supervisor_observations.jsonl"
+    if not path.exists():
+        return {"count": 0, "latest": [], "health_counts": {}, "parse_error": ""}
+    latest_by_run: dict[str, dict[str, object]] = {}
+    try:
+        for index, line in enumerate(read_text(path).splitlines(), start=1):
+            if not line.strip():
+                continue
+            observation = json.loads(line)
+            if not isinstance(observation, dict):
+                return {"count": 0, "latest": [], "health_counts": {}, "parse_error": f"line {index} must be an object"}
+            run_id = str(observation.get("run_id", ""))
+            if run_id:
+                latest_by_run[run_id] = observation
+    except json.JSONDecodeError as exc:
+        return {"count": 0, "latest": [], "health_counts": {}, "parse_error": str(exc)}
+    latest = list(latest_by_run.values())
+    health_counts: dict[str, int] = {}
+    for observation in latest:
+        health = str(observation.get("health", "unknown"))
+        health_counts[health] = health_counts.get(health, 0) + 1
+    return {"count": len(latest), "latest": latest, "health_counts": health_counts, "parse_error": ""}
+
+
+def render_external_agent_runs(runs: list[dict[str, object]], observation_summary: dict[str, object] | None = None) -> str:
     lines = ["# External Agent Runs", ""]
     if not runs:
         lines.append("No external agent runs recorded yet.")
         return "\n".join(lines) + "\n"
+    latest_observations = {
+        str(observation.get("run_id", "")): observation
+        for observation in (observation_summary or {}).get("latest", [])
+        if isinstance(observation, dict)
+    }
     for run in runs[-80:]:
         lines.append(
             f"- `{run.get('run_id', '')}` {run.get('status', '')} "
@@ -75,6 +106,13 @@ def render_external_agent_runs(runs: list[dict[str, object]]) -> str:
             lines.append(f"  stderr: `{run['stderr_path']}`")
         if run.get("error"):
             lines.append(f"  error: {run['error']}")
+        observation = latest_observations.get(str(run.get("run_id", "")))
+        if observation is not None:
+            observed_status = str(observation.get("run_status", "") or "unknown")
+            consistency = "current" if observed_status == str(run.get("status", "") or "unknown") else "stale"
+            lines.append(f"  observation: {consistency} health={observation.get('health', 'unknown')}")
+    if observation_summary and observation_summary.get("parse_error"):
+        lines.append("- Worker observation ledger is unreadable; run `revagent validate`.")
     return "\n".join(lines) + "\n"
 
 
@@ -142,7 +180,7 @@ def external_run_recovery_hint(run: dict[str, object]) -> str:
     return "no recovery needed"
 
 
-def render_external_agent_run_detail(run: dict[str, object]) -> str:
+def render_external_agent_run_detail(run: dict[str, object], observation_summary: dict[str, object] | None = None) -> str:
     lines = [
         "# External Agent Run",
         "",
@@ -159,6 +197,24 @@ def render_external_agent_run_detail(run: dict[str, object]) -> str:
         f"- Operator note: {run.get('operator_note', '') or 'none'}",
         f"- Recovery: {external_run_recovery_hint(run)}",
     ]
+    if observation_summary and observation_summary.get("parse_error"):
+        lines.append("- Worker observation: unavailable; run `revagent validate`.")
+    else:
+        latest_observations = {
+            str(observation.get("run_id", "")): observation
+            for observation in (observation_summary or {}).get("latest", [])
+            if isinstance(observation, dict)
+        }
+        observation = latest_observations.get(str(run.get("run_id", "")))
+        if observation is None:
+            lines.append("- Worker observation: none recorded.")
+        else:
+            observed_status = str(observation.get("run_status", "") or "unknown")
+            consistency = "current" if observed_status == str(run.get("status", "") or "unknown") else "stale"
+            lines.append(
+                f"- Worker observation: {consistency} status={observed_status} health={observation.get('health', 'unknown')} "
+                f"next=`{observation.get('next_command', '')}`"
+            )
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -174,7 +230,7 @@ def external_agent_run_artifact(run: dict[str, object], artifact: str) -> str:
     return read_text(path)
 
 
-def external_agent_run_supervision(run: dict[str, object]) -> dict[str, object]:
+def external_agent_run_supervision(run: dict[str, object], observation: dict[str, object] | None = None) -> dict[str, object]:
     status = str(run.get("status", "") or "unknown")
     artifact_status: dict[str, str] = {}
     for artifact, field in EXTERNAL_RUN_ARTIFACTS.items():
@@ -208,6 +264,15 @@ def external_agent_run_supervision(run: dict[str, object]) -> dict[str, object]:
     else:
         health = "unknown"
         next_command = f"revagent run-status {run.get('run_id', '')}"
+    observation_summary: dict[str, object] = {"status": "not_recorded"}
+    if observation is not None:
+        observed_status = str(observation.get("run_status", "") or "unknown")
+        observation_summary = {
+            "status": "current" if observed_status == status else "stale",
+            "run_status": observed_status,
+            "health": str(observation.get("health", "unknown")),
+            "next_command": str(observation.get("next_command", "")),
+        }
     return {
         "run_id": run.get("run_id", ""),
         "status": status,
@@ -215,16 +280,24 @@ def external_agent_run_supervision(run: dict[str, object]) -> dict[str, object]:
         "artifacts": artifact_status,
         "recovery": external_run_recovery_hint(run),
         "next_command": next_command,
+        "observation": observation_summary,
     }
 
 
-def render_external_agent_supervision(runs: list[dict[str, object]]) -> str:
+def render_external_agent_supervision(
+    runs: list[dict[str, object]], observation_summary: dict[str, object] | None = None
+) -> str:
     lines = ["# External Agent Supervision", ""]
     if not runs:
         lines.append("No external agent runs recorded yet.")
         return "\n".join(lines) + "\n"
+    latest_observations = {
+        str(observation.get("run_id", "")): observation
+        for observation in (observation_summary or {}).get("latest", [])
+        if isinstance(observation, dict)
+    }
     for run in runs[-80:]:
-        summary = external_agent_run_supervision(run)
+        summary = external_agent_run_supervision(run, latest_observations.get(str(run.get("run_id", ""))))
         artifacts = ", ".join(f"{key}={value}" for key, value in sorted(summary["artifacts"].items()))
         lines.extend(
             [
@@ -234,6 +307,12 @@ def render_external_agent_supervision(runs: list[dict[str, object]]) -> str:
                 f"  next: `{summary['next_command']}`",
             ]
         )
+        observation = summary["observation"]
+        if observation.get("status") != "not_recorded":
+            lines.append(
+                f"  observation: {observation['status']} status={observation['run_status']} "
+                f"health={observation['health']} next=`{observation['next_command']}`"
+            )
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -487,6 +566,15 @@ def build_monitor_report(base: Path) -> dict[str, object]:
     command, reason = recommended_monitor_command(report, codex_ok, bool(session))
     external_runs = load_external_agent_runs(config)
     latest_external = external_runs[-1] if external_runs else {}
+    observation_summary = supervisor_observations_snapshot(config)
+    try:
+        from .evolution import latest_runtime_events
+
+        runtime_events = latest_runtime_events(config)
+        runtime_error = ""
+    except (ValueError, json.JSONDecodeError) as exc:
+        runtime_events = {}
+        runtime_error = str(exc)
     return {
         "version": 1,
         "generated_at": now_iso(),
@@ -503,6 +591,9 @@ def build_monitor_report(base: Path) -> dict[str, object]:
         "dashboard_path": str(config.workspace / "dashboard" / "index.html"),
         "latest_external_run": latest_external,
         "latest_external_recovery": external_run_recovery_hint(latest_external) if latest_external else "none",
+        "observation_summary": observation_summary,
+        "worker_runtime": list(runtime_events.values()),
+        "worker_runtime_error": runtime_error,
     }
 
 
@@ -529,6 +620,30 @@ def render_monitor_report(monitor: dict[str, object]) -> str:
         lines.append(f"- Recovery: {monitor.get('latest_external_recovery', '')}")
     else:
         lines.append("- No external agent runs recorded.")
+    observation_summary = monitor.get("observation_summary", {})
+    lines.extend(["", "## Worker Observations", ""])
+    if not isinstance(observation_summary, dict) or not observation_summary.get("latest"):
+        if isinstance(observation_summary, dict) and observation_summary.get("parse_error"):
+            lines.append("- Observation ledger is unreadable; run `revagent validate`.")
+        else:
+            lines.append("- No queued worker observations recorded.")
+    else:
+        for observation in observation_summary["latest"]:
+            if isinstance(observation, dict):
+                lines.append(
+                    f"- `{observation.get('run_id', '')}` health={observation.get('health', '')} "
+                    f"next=`{observation.get('next_command', '')}`"
+                )
+    lines.extend(["", "## Controlled Worker Runtime", ""])
+    runtime = monitor.get("worker_runtime", [])
+    if monitor.get("worker_runtime_error"):
+        lines.append("- Worker runtime ledger is unreadable; run `revagent validate`.")
+    elif not isinstance(runtime, list) or not runtime:
+        lines.append("- No explicitly started worker processes recorded.")
+    else:
+        for record in runtime:
+            if isinstance(record, dict):
+                lines.append(f"- `{record.get('run_id', '')}` state={record.get('state', '')} exit={record.get('exit_code', '')}")
     decisions = monitor.get("manual_decisions", [])
     lines.extend(["", "## Manual Decisions", ""])
     if decisions:
@@ -562,7 +677,9 @@ def html_count_map(values: dict[str, int]) -> str:
     return "".join(f"<span>{html.escape(str(key))}: {value}</span>" for key, value in sorted(values.items()))
 
 
-def render_dashboard_html(dashboard: dict[str, object], external_runs: list[dict[str, object]]) -> str:
+def render_dashboard_html(
+    dashboard: dict[str, object], external_runs: list[dict[str, object]], observation_summary: dict[str, object] | None = None
+) -> str:
     summary = dashboard.get("summary", {})
     next_task = dashboard.get("next") or {}
     readiness = dashboard.get("readiness", {})
@@ -575,6 +692,13 @@ def render_dashboard_html(dashboard: dict[str, object], external_runs: list[dict
     session = dashboard.get("session") or {}
     workspace = Path(str(dashboard.get("workspace", ""))) if dashboard.get("workspace") else None
     memory = build_revision_memory(workspace.parent) if workspace else {"facts": []}
+    observation_summary = observation_summary or {"count": 0, "latest": [], "health_counts": {}, "parse_error": ""}
+    try:
+        from .evolution import latest_runtime_events
+
+        worker_runtime = list(latest_runtime_events(load_config(workspace.parent)).values()) if workspace else []
+    except (ValueError, json.JSONDecodeError):
+        worker_runtime = []
 
     def task_list(entries: list[dict[str, object]], empty: str) -> str:
         if not entries:
@@ -606,6 +730,22 @@ def render_dashboard_html(dashboard: dict[str, object], external_runs: list[dict
         f"<code>{html.escape(str(fact.get('next_command', '')))}</code></li>"
         for fact in list(memory.get("facts", []))[:8]
     ) or "<li>No memory facts.</li>"
+    observation_items = "".join(
+        f"<li><strong>{html.escape(str(observation.get('run_id', '')))}</strong> "
+        f"{html.escape(str(observation.get('health', '')))}<br>"
+        f"<code>{html.escape(str(observation.get('next_command', '')))}</code></li>"
+        for observation in observation_summary.get("latest", [])
+        if isinstance(observation, dict)
+    ) or (
+        "<li>Observation ledger is unreadable; run <code>revagent validate</code>.</li>"
+        if observation_summary.get("parse_error")
+        else "<li>No queued worker observations.</li>"
+    )
+    runtime_items = "".join(
+        f"<li><strong>{html.escape(str(record.get('run_id', '')))}</strong> {html.escape(str(record.get('state', '')))}</li>"
+        for record in worker_runtime
+        if isinstance(record, dict)
+    ) or "<li>No explicitly started worker processes.</li>"
 
     return f"""<!doctype html>
 <html lang="en">
@@ -643,6 +783,8 @@ def render_dashboard_html(dashboard: dict[str, object], external_runs: list[dict
     <section><h2>Stale Tasks</h2>{task_list(stale, 'No stale tasks.')}</section>
     <section><h2>Recent Internal Runs</h2><ul>{internal_items}</ul></section>
     <section><h2>Recent External Runs</h2><ul>{external_items}</ul></section>
+    <section><h2>Worker Observations</h2><div class="metric">{html_count_map(observation_summary.get('health_counts', {}))}</div><ul>{observation_items}</ul></section>
+    <section><h2>Controlled Worker Runtime</h2><ul>{runtime_items}</ul></section>
   </main>
 </body>
 </html>
@@ -653,7 +795,7 @@ def write_dashboard_html(base: Path) -> Path:
     config = load_config(base)
     dashboard = write_agent_dashboard(base)
     target = config.workspace / "dashboard" / "index.html"
-    write_text(target, render_dashboard_html(dashboard, load_external_agent_runs(config)))
+    write_text(target, render_dashboard_html(dashboard, load_external_agent_runs(config), supervisor_observations_snapshot(config)))
     return target
 
 
@@ -672,6 +814,7 @@ __all__ = [
     "render_monitor_report",
     "render_external_agent_supervision",
     "run_external_agent",
+    "supervisor_observations_snapshot",
     "write_dashboard_html",
     "write_monitor_report",
 ]

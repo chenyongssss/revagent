@@ -23,7 +23,7 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Mathematics",
   "Topic :: Text Processing :: Markup :: LaTeX",
 ]
-dependencies = []
+dependencies = ["psutil>=5.9"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "build>=1.2"]

@@ -62,6 +62,7 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
             if record.get("status") in {"done", "failed", "skipped"} and "dependencies" not in record:
                 warnings.append(f"agent_runs.jsonl line {index} has no dependency metadata")
     external_runs = config.workspace / "external_agent_runs.jsonl"
+    external_run_statuses: dict[str, str] = {}
     if external_runs.exists():
         valid_external_statuses = {"dry_run", "queued", "running", "done", "failed", "canceled", "invalid"}
         for index, line in enumerate(read_text(external_runs).splitlines(), start=1):
@@ -72,6 +73,12 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
             except json.JSONDecodeError as exc:
                 warnings.append(f"invalid JSONL in external_agent_runs.jsonl line {index}: {exc}")
                 continue
+            if not isinstance(record, dict):
+                warnings.append(f"external_agent_runs.jsonl line {index} must be an object")
+                continue
+            run_id = str(record.get("run_id", ""))
+            if run_id:
+                external_run_statuses[run_id] = str(record.get("status", ""))
             if not record.get("backend"):
                 warnings.append(f"external_agent_runs.jsonl line {index} has no backend")
             if not record.get("prompt_path"):
@@ -93,6 +100,103 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
                         warnings.append(f"external_agent_runs.jsonl line {index} {key} is missing")
             if record.get("operator_note") and not record.get("marked_at"):
                 warnings.append(f"external_agent_runs.jsonl line {index} has operator_note without marked_at")
+    observations_path = config.workspace / "supervisor_observations.jsonl"
+    if observations_path.exists():
+        valid_observation_health = {"ready_to_launch", "blocked", "not_queued"}
+        required_safety_flags = {"launches_processes", "mutates_external_run_ledger", "infers_process_liveness"}
+        latest_observations: dict[str, tuple[int, dict[str, object]]] = {}
+        for index, line in enumerate(read_text(observations_path).splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                observation = json.loads(line)
+            except json.JSONDecodeError as exc:
+                warnings.append(f"invalid JSONL in supervisor_observations.jsonl line {index}: {exc}")
+                continue
+            if not isinstance(observation, dict):
+                warnings.append(f"supervisor_observations.jsonl line {index} must be an object")
+                continue
+            if not observation.get("run_id"):
+                warnings.append(f"supervisor_observations.jsonl line {index} has no run_id")
+            else:
+                latest_observations[str(observation["run_id"])] = (index, observation)
+            if observation.get("health") not in valid_observation_health:
+                warnings.append(f"supervisor_observations.jsonl line {index} has invalid health {observation.get('health')}")
+            safety = observation.get("safety")
+            if not isinstance(safety, dict):
+                warnings.append(f"supervisor_observations.jsonl line {index} has no safety declaration")
+            elif any(safety.get(flag) is not False for flag in required_safety_flags):
+                warnings.append(f"supervisor_observations.jsonl line {index} has an unsafe or incomplete safety declaration")
+        for run_id, (index, observation) in latest_observations.items():
+            current_status = external_run_statuses.get(run_id)
+            if current_status is None:
+                warnings.append(f"supervisor_observations.jsonl line {index} references unknown external run {run_id}")
+            elif str(observation.get("run_status", "")) != current_status:
+                warnings.append(
+                    f"supervisor_observations.jsonl line {index} is stale for {run_id}: "
+                    f"observed {observation.get('run_status', '')}, current {current_status}"
+                )
+    runtime_path = config.workspace / "worker_runtime_events.jsonl"
+    if runtime_path.exists():
+        valid_runtime_states = {"running", "completed", "failed", "canceled", "lost"}
+        for index, line in enumerate(read_text(runtime_path).splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                warnings.append(f"invalid JSONL in worker_runtime_events.jsonl line {index}: {exc}")
+                continue
+            if not isinstance(record, dict):
+                warnings.append(f"worker_runtime_events.jsonl line {index} must be an object")
+                continue
+            if str(record.get("run_id", "")) not in external_run_statuses:
+                warnings.append(f"worker_runtime_events.jsonl line {index} references unknown external run")
+            if record.get("state") not in valid_runtime_states:
+                warnings.append(f"worker_runtime_events.jsonl line {index} has invalid state {record.get('state')}")
+            if record.get("state") == "running" and (not record.get("pid") or record.get("process_created_at") is None):
+                warnings.append(f"worker_runtime_events.jsonl line {index} has incomplete process identity")
+    snapshots_path = config.workspace / "worker_snapshots.json"
+    if snapshots_path.exists():
+        try:
+            snapshots = read_json(snapshots_path, {})
+            if not isinstance(snapshots, dict):
+                warnings.append("worker_snapshots.json must be an object")
+            else:
+                for run_id, snapshot in snapshots.items():
+                    if run_id not in external_run_statuses:
+                        warnings.append(f"worker snapshot references unknown external run {run_id}")
+                    if not isinstance(snapshot, dict) or not Path(str(snapshot.get("path", ""))).exists():
+                        warnings.append(f"worker snapshot is missing for {run_id}")
+        except json.JSONDecodeError as exc:
+            issues.append(f"invalid JSON in worker_snapshots.json: {exc}")
+    evaluations_path = config.workspace / "worker_evaluations.jsonl"
+    if evaluations_path.exists():
+        for index, line in enumerate(read_text(evaluations_path).splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                warnings.append(f"invalid JSONL in worker_evaluations.jsonl line {index}: {exc}")
+                continue
+            if not isinstance(record, dict) or record.get("status") not in {"passed", "failed", "ineligible"}:
+                warnings.append(f"worker_evaluations.jsonl line {index} has invalid status")
+            elif record.get("status") == "passed" and (record.get("test_exit_code") != 0 or not Path(str(record.get("patch_path", ""))).exists()):
+                warnings.append(f"worker_evaluations.jsonl line {index} passed without a valid patch and test result")
+    proposals_path = config.workspace / "evolution_proposals.json"
+    if proposals_path.exists():
+        try:
+            proposals = read_json(proposals_path, [])
+            if not isinstance(proposals, list):
+                warnings.append("evolution_proposals.json must be a list")
+            else:
+                valid_statuses = {"proposed", "approved", "rejected", "applied"}
+                for proposal in proposals:
+                    if not isinstance(proposal, dict) or proposal.get("status") not in valid_statuses:
+                        warnings.append("evolution_proposals.json has an invalid proposal status")
+        except json.JSONDecodeError as exc:
+            issues.append(f"invalid JSON in evolution_proposals.json: {exc}")
     experiment_attempts_path = config.workspace / "experiment_run_attempts.jsonl"
     if experiment_attempts_path.exists():
         for index, line in enumerate(read_text(experiment_attempts_path).splitlines(), start=1):

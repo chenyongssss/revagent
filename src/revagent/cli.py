@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from .agent import (
@@ -79,10 +80,31 @@ from .external_agent import (
     render_external_agent_supervision,
     render_monitor_report,
     run_external_agent,
+    supervisor_observations_snapshot,
     write_dashboard_html,
     write_monitor_report,
 )
-from .supervisor import build_supervisor_feedback, build_supervisor_plan, build_supervisor_workers, render_supervisor_feedback, render_supervisor_plan, render_supervisor_runs, render_supervisor_workers, run_supervisor_loop
+from .evolution import (
+    apply_evolution,
+    approve_evolution,
+    cancel_worker,
+    create_worker_snapshot,
+    evaluate_worker,
+    get_proposal,
+    latest_runtime_events,
+    plan_evolution,
+    refresh_worker,
+    reject_evolution,
+    render_evaluations,
+    render_proposals,
+    render_runtime_events,
+    start_worker,
+)
+from .project_runtime import authorize_remote, evaluate_review_item, initialize_project_runtime, project_status, recover_project_runtime, run_project_cycle, service_health, serve_project, set_project_paused, stop_project_service
+from .review_workers import authorize_experiment, collect_review_worker, create_review_snapshot, plan_review_workers, run_authorized_experiment, start_review_worker
+from .review_rubric import run_review_rubric
+from .benchmark import run_benchmark
+from .supervisor import build_supervisor_feedback, build_supervisor_plan, build_supervisor_workers, get_supervisor_observations, observe_supervisor_workers, render_supervisor_feedback, render_supervisor_observations, render_supervisor_plan, render_supervisor_runs, render_supervisor_workers, run_supervisor_loop
 from .workspace import (
     clean_workspace,
     export_artifacts,
@@ -212,6 +234,53 @@ def build_parser() -> argparse.ArgumentParser:
     submit_pack = sub.add_parser("submit-pack", help="Inspect final submission package readiness.")
     submit_pack.add_argument("--dry-run", action="store_true", help="Show missing submission package pieces without writing final artifacts.")
     sub.add_parser("status", help="Print workspace item counts and configuration.")
+    project_init = sub.add_parser("project-init", help="Import review items into the persistent project runtime.")
+    project_status_parser = sub.add_parser("project-status", help="Show durable review-project task state.")
+    sub.add_parser("project-pause", help="Pause local project scheduling without changing review item gates.")
+    sub.add_parser("project-resume", help="Resume local project scheduling.")
+    sub.add_parser("project-stop", help="Request that a running local project service stop after its current request.")
+    sub.add_parser("project-recover", help="Reconcile expired project task leases after service interruption.")
+    sub.add_parser("service-health", help="Check persistent runtime and discovered local service health.")
+    project_cycle = sub.add_parser("project-cycle", help="Run one bounded local reversible project scheduling cycle.")
+    project_cycle.add_argument("--workers", type=int, default=2)
+    serve = sub.add_parser("serve", help="Run the loopback-only local review project service.")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
+    serve.add_argument("--workers", type=int, default=2)
+    serve.add_argument("--once", action="store_true", help="Initialize and run one cycle without starting the HTTP server.")
+    authorize = sub.add_parser("authorize-remote", help="Record one task-scoped remote model or retrieval authorization.")
+    authorize.add_argument("task_id")
+    authorize.add_argument("--provider", required=True)
+    authorize.add_argument("--model", required=True)
+    authorize.add_argument("--purpose", required=True)
+    authorize.add_argument("--artifact-class", action="append", required=True)
+    authorize.add_argument("--ttl-minutes", type=int, default=30)
+    review_evaluate = sub.add_parser("review-evaluate", help="Evaluate deterministic evidence readiness for one review item.")
+    review_evaluate.add_argument("item_id")
+    rubric = sub.add_parser("review-rubric", help="Run one consent-gated semantic review rubric.")
+    rubric.add_argument("item_id")
+    rubric.add_argument("--authorization", type=int, required=True)
+    worker_plan = sub.add_parser("worker-plan", help="Create role-specific isolated review workers for one item.")
+    worker_plan.add_argument("item_id")
+    worker_plan.add_argument("--backend", default="codex", choices=["codex", "openai-compatible"])
+    worker_snapshot = sub.add_parser("review-sandbox-create", help="Create a complete isolated project snapshot for a review worker.")
+    worker_snapshot.add_argument("worker_id")
+    worker_start = sub.add_parser("review-worker-start", help="Start one prepared Codex review worker in its snapshot.")
+    worker_start.add_argument("worker_id")
+    worker_collect = sub.add_parser("review-worker-collect", help="Collect an exited review worker result bundle and conflicts.")
+    worker_collect.add_argument("worker_id")
+    experiment_authorize = sub.add_parser("experiment-authorize-worker", help="Authorize one sandboxed experiment worker command and resource budget.")
+    experiment_authorize.add_argument("worker_id")
+    experiment_authorize.add_argument("--command", dest="experiment_command", required=True)
+    experiment_authorize.add_argument("--cwd", default=".")
+    experiment_authorize.add_argument("--timeout-seconds", type=int, required=True)
+    experiment_authorize.add_argument("--cpu", type=int, required=True)
+    experiment_authorize.add_argument("--memory-mb", type=int, required=True)
+    experiment_authorize.add_argument("--artifact", action="append", default=[])
+    experiment_start = sub.add_parser("experiment-start-worker", help="Run one explicitly authorized sandboxed experiment.")
+    experiment_start.add_argument("authorization_id")
+    benchmark_run = sub.add_parser("benchmark-run", help="Run a deterministic synthetic or licensed benchmark fixture.")
+    benchmark_run.add_argument("--fixture", required=True)
     sub.add_parser("agent-status", help="Build and print the safe-auto agent task queue.")
     sub.add_parser("monitor", help="Refresh state and print the recovery monitor.")
     sub.add_parser("dashboard", help="Write the static HTML agent dashboard.")
@@ -234,8 +303,31 @@ def build_parser() -> argparse.ArgumentParser:
     run_log = sub.add_parser("run-log", help="Print an external agent run artifact.")
     run_log.add_argument("run_id")
     run_log.add_argument("--artifact", default="stdout", choices=["prompt", "stdout", "stderr", "launch"])
-    run_supervise = sub.add_parser("run-supervise", help="Summarize external agent run health and next commands.")
+    run_supervise = sub.add_parser("run-supervise", help="Summarize external-run health with persisted worker observations.")
     run_supervise.add_argument("run_id", nargs="?")
+    run_start = sub.add_parser("run-start", help="Explicitly start a queued, snapshot-isolated external worker.")
+    run_start.add_argument("run_id")
+    run_refresh = sub.add_parser("run-refresh", help="Refresh explicit worker runtime state from its completion manifest.")
+    run_refresh.add_argument("run_id")
+    run_cancel = sub.add_parser("run-cancel", help="Terminate an explicitly started worker and record cancellation.")
+    run_cancel.add_argument("run_id")
+    run_cancel.add_argument("--note", required=True)
+    worker_snapshot = sub.add_parser("worker-snapshot", help="Create an isolated source snapshot for a queued worker.")
+    worker_snapshot.add_argument("run_id")
+    worker_evaluate = sub.add_parser("worker-evaluate", help="Evaluate a completed isolated worker explicitly.")
+    worker_evaluate.add_argument("run_id")
+    sub.add_parser("evolution-plan", help="Create manual-gated source evolution proposals from passed worker evaluations.")
+    evolution_review = sub.add_parser("evolution-review", help="Inspect one source evolution proposal.")
+    evolution_review.add_argument("proposal_id")
+    evolution_approve = sub.add_parser("evolution-approve", help="Approve a passed source evolution proposal without applying it.")
+    evolution_approve.add_argument("proposal_id")
+    evolution_approve.add_argument("--note", required=True)
+    evolution_reject = sub.add_parser("evolution-reject", help="Reject a source evolution proposal.")
+    evolution_reject.add_argument("proposal_id")
+    evolution_reject.add_argument("--note", required=True)
+    evolution_apply = sub.add_parser("evolution-apply", help="Apply an approved, current source evolution proposal.")
+    evolution_apply.add_argument("proposal_id")
+    evolution_apply.add_argument("--approved", action="store_true")
     agent_plan = sub.add_parser("agent-plan", help="Create a goal-oriented agent session plan.")
     agent_plan.add_argument("--goal", required=True, choices=["rebuttal-draft", "proof-response", "experiment-response", "full-revision-pass"])
     sub.add_parser("agent-session", help="Show recorded goal-oriented agent sessions.")
@@ -274,6 +366,12 @@ def build_parser() -> argparse.ArgumentParser:
     supervisor_workers.add_argument("--workers", type=int, default=2)
     supervisor_workers.add_argument("--queue", action="store_true", help="Queue external worker launch scripts without starting them.")
     supervisor_workers.add_argument("--update-plan", action="store_true", help="Append the Phase 10 roadmap section to plan.md if missing.")
+    supervisor_observe = sub.add_parser("supervisor-observe", help="Record read-only observations for queued external workers.")
+    supervisor_observe.add_argument("run_id", nargs="?")
+    supervisor_observe.add_argument("--update-plan", action="store_true", help="Append the Phase 11 roadmap section to plan.md if missing.")
+    supervisor_observation = sub.add_parser("supervisor-observation", help="Show recorded read-only worker observations.")
+    supervisor_observation.add_argument("run_id", nargs="?")
+    supervisor_observation.add_argument("--update-plan", action="store_true", help="Append the Phase 12 roadmap section to plan.md if missing.")
     agent_run = sub.add_parser("agent-run", help="Execute safe-auto agent tasks.")
     agent_run.add_argument("--limit", type=int, default=None, help="Maximum number of safe pending tasks to execute.")
     agent_run.add_argument("--until-blocked", action="store_true", help="Run safe tasks until only blocked/manual work remains.")
@@ -630,6 +728,110 @@ def main(argv: list[str] | None = None) -> int:
         for key, value in result["counts"].items():
             print(f"{key}: {value}")
         return 0
+    if args.command == "project-init":
+        print(json.dumps(initialize_project_runtime(base), ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "project-status":
+        print(json.dumps(project_status(base), ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "project-pause":
+        set_project_paused(base, True)
+        print("Project scheduling paused")
+        return 0
+    if args.command == "project-resume":
+        set_project_paused(base, False)
+        print("Project scheduling resumed")
+        return 0
+    if args.command == "project-stop":
+        stop_project_service(base)
+        print("Project service stop requested")
+        return 0
+    if args.command == "project-recover":
+        print(json.dumps(recover_project_runtime(base), ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "service-health":
+        print(json.dumps(service_health(base), ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "project-cycle":
+        try:
+            print(json.dumps(run_project_cycle(base, args.workers), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "serve":
+        try:
+            serve_project(base, args.host, args.port, args.workers, args.once)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "authorize-remote":
+        try:
+            print(json.dumps(authorize_remote(base, args.task_id, args.provider, args.model, args.purpose, args.artifact_class, args.ttl_minutes), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "review-evaluate":
+        print(json.dumps(evaluate_review_item(base, args.item_id), ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "review-rubric":
+        try:
+            print(json.dumps(run_review_rubric(base, args.item_id, args.authorization), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "worker-plan":
+        try:
+            print(json.dumps(plan_review_workers(base, args.item_id, args.backend), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "review-sandbox-create":
+        try:
+            print(json.dumps(create_review_snapshot(base, args.worker_id), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "review-worker-start":
+        try:
+            print(json.dumps(start_review_worker(base, args.worker_id), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "review-worker-collect":
+        try:
+            print(json.dumps(collect_review_worker(base, args.worker_id), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "experiment-authorize-worker":
+        try:
+            print(json.dumps(authorize_experiment(base, args.worker_id, args.experiment_command, args.cwd, args.timeout_seconds, args.cpu, args.memory_mb, args.artifact), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "experiment-start-worker":
+        try:
+            print(json.dumps(run_authorized_experiment(base, args.authorization_id), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "benchmark-run":
+        try:
+            print(json.dumps(run_benchmark(base, Path(args.fixture)), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
     if args.command == "agent-status":
         state = build_agent_state(base)
         config = load_config(base)
@@ -667,10 +869,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run-status":
         config = load_config(base)
         try:
+            runtime = latest_runtime_events(config)
             if args.run_id:
-                print(render_external_agent_run_detail(get_external_agent_run(config, args.run_id)), end="")
+                print(render_external_agent_run_detail(get_external_agent_run(config, args.run_id), supervisor_observations_snapshot(config)), end="")
+                if args.run_id in runtime:
+                    print(render_runtime_events([runtime[args.run_id]]), end="")
             else:
-                print(render_external_agent_runs(load_external_agent_runs(config)), end="")
+                print(render_external_agent_runs(load_external_agent_runs(config), supervisor_observations_snapshot(config)), end="")
+                if runtime:
+                    print(render_runtime_events(list(runtime.values())), end="")
         except ValueError as exc:
             print(f"error: {exc}")
             return 1
@@ -714,7 +921,85 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(f"error: {exc}")
             return 1
-        print(render_external_agent_supervision(runs), end="")
+        print(render_external_agent_supervision(runs, supervisor_observations_snapshot(config)), end="")
+        runtime = latest_runtime_events(config)
+        selected_runtime = [runtime[str(run.get("run_id", ""))] for run in runs if str(run.get("run_id", "")) in runtime]
+        if selected_runtime:
+            print(render_runtime_events(selected_runtime), end="")
+        return 0
+    if args.command == "worker-snapshot":
+        try:
+            snapshot = create_worker_snapshot(base, args.run_id)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(f"Created worker snapshot for {args.run_id}: {snapshot['path']}")
+        return 0
+    if args.command == "run-start":
+        try:
+            print(render_runtime_events([start_worker(base, args.run_id)]), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "run-refresh":
+        try:
+            print(render_runtime_events([refresh_worker(base, args.run_id)]), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "run-cancel":
+        try:
+            print(render_runtime_events([cancel_worker(base, args.run_id, args.note)]), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "worker-evaluate":
+        try:
+            print(render_evaluations([evaluate_worker(base, args.run_id)]), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "evolution-plan":
+        try:
+            print(render_proposals(plan_evolution(base)), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "evolution-review":
+        try:
+            print(render_proposals([get_proposal(load_config(base), args.proposal_id)]), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "evolution-approve":
+        try:
+            print(render_proposals([approve_evolution(base, args.proposal_id, args.note)]), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "evolution-reject":
+        try:
+            print(render_proposals([reject_evolution(base, args.proposal_id, args.note)]), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "evolution-apply":
+        if not args.approved:
+            print("error: evolution-apply requires --approved")
+            return 1
+        try:
+            print(render_proposals([apply_evolution(base, args.proposal_id)]), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
         return 0
     if args.command == "agent-plan":
         try:
@@ -814,6 +1099,22 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}")
             return 1
         print(render_supervisor_workers(worker_plan), end="")
+        return 0
+    if args.command == "supervisor-observe":
+        try:
+            observations = observe_supervisor_workers(base, args.run_id, update_plan=args.update_plan)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(render_supervisor_observations(observations), end="")
+        return 0
+    if args.command == "supervisor-observation":
+        try:
+            observations = get_supervisor_observations(base, args.run_id, update_plan=args.update_plan)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(render_supervisor_observations(observations), end="")
         return 0
     if args.command == "agent-run":
         state = run_agent_once(base, limit=args.limit, until_blocked=args.until_blocked, retry_failed=args.retry_failed, max_failures=args.max_failures)

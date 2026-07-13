@@ -159,6 +159,29 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     write_text(ws / "supervisor_feedback.md", "# Supervisor Feedback\n\nNo supervisor feedback generated yet.\n")
     write_json(ws / "supervisor_workers.json", {"version": 1, "generated_at": "", "assignments": []})
     write_text(ws / "supervisor_workers.md", "# Supervisor Workers\n\nNo supervisor workers generated yet.\n")
+    write_text(ws / "supervisor_observations.jsonl", "")
+    write_text(ws / "supervisor_observations.md", "# Supervisor Observations\n\nNo queued worker observations recorded yet.\n")
+    write_text(ws / "worker_runtime_events.jsonl", "")
+    write_text(ws / "worker_runtime_events.md", "# Worker Runtime Events\n\nNo worker runtime events recorded yet.\n")
+    write_json(ws / "worker_snapshots.json", {})
+    write_text(ws / "worker_snapshots.md", "# Worker Snapshots\n\nNo worker snapshots recorded yet.\n")
+    write_text(ws / "worker_evaluations.jsonl", "")
+    write_text(ws / "worker_evaluations.md", "# Worker Evaluations\n\nNo worker evaluations recorded yet.\n")
+    write_json(ws / "evolution_proposals.json", [])
+    write_text(ws / "evolution_proposals.md", "# Evolution Proposals\n\nNo evolution proposals recorded yet.\n")
+    import sqlite3
+    sqlite3.connect(ws / "runtime.sqlite3").close()
+    write_json(ws / "review_evidence.json", {})
+    write_text(ws / "review_evidence.md", "# Review Evidence\n\nNo review evidence recorded yet.\n")
+    write_json(ws / "review_evaluations.json", {})
+    write_text(ws / "review_evaluations.md", "# Review Evaluations\n\nNo review evaluations recorded yet.\n")
+    write_json(ws / "review_workers.json", {})
+    write_text(ws / "review_workers.md", "# Review Workers\n\nNo review workers recorded yet.\n")
+    write_json(ws / "review_conflicts.json", {})
+    write_text(ws / "review_conflicts.md", "# Review Conflicts\n\nNo review conflicts recorded yet.\n")
+    write_json(ws / "experiment_authorizations.json", {})
+    write_text(ws / "experiment_authorizations.md", "# Experiment Authorizations\n\nNo experiment authorizations recorded yet.\n")
+    write_json(ws / "service.json", {})
     write_json(ws / "llm_drafts.json", {})
     write_text(ws / "llm_drafts.md", "# LLM Drafts\n\nNo LLM drafts generated yet.\n")
     write_text(ws / "response_letter.md", f"# {profile['response_heading']}\n\n")
@@ -236,6 +259,12 @@ def schema_markdown() -> str:
             "- `supervisor_feedback.md`: reviewable rendering of supervisor strategy feedback.",
             "- `supervisor_workers.json`: generated conservative external worker assignment plan.",
             "- `supervisor_workers.md`: reviewable rendering of supervisor worker assignments.",
+            "- `supervisor_observations.jsonl`: append-only, read-only artifact observations for queued external workers.",
+            "- `supervisor_observations.md`: reviewable rendering of queued worker observations.",
+            "- `worker_runtime_events.jsonl`: append-only explicit worker lifecycle events with PID/create-time identity.",
+            "- `worker_snapshots.json`: isolated RevAgent source snapshot manifests for controlled workers.",
+            "- `worker_evaluations.jsonl`: append-only snapshot patch and test-gate evaluations.",
+            "- `evolution_proposals.json`: manually approved RevAgent source evolution proposals.",
             "- `llm_drafts.json`: offline LLM reviewer-intent, response, candidate-text drafts, author review status, and quality status keyed by review item id.",
             "- `llm_drafts.md`: reviewable rendering of LLM drafts, author review notes, and quality issues. Entries are never auto-approved or auto-applied.",
             "- `revision_provenance.json`: generated per-item provenance snapshot linking reviewer comments, LLM drafts, candidates, proof/experiment gates, and apply records.",
@@ -315,6 +344,27 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "supervisor_feedback.md": "# Supervisor Feedback\n\nNo supervisor feedback generated yet.\n",
         "supervisor_workers.json": {"version": 1, "generated_at": "", "assignments": []},
         "supervisor_workers.md": "# Supervisor Workers\n\nNo supervisor workers generated yet.\n",
+        "supervisor_observations.jsonl": "",
+        "supervisor_observations.md": "# Supervisor Observations\n\nNo queued worker observations recorded yet.\n",
+        "worker_runtime_events.jsonl": "",
+        "worker_runtime_events.md": "# Worker Runtime Events\n\nNo worker runtime events recorded yet.\n",
+        "worker_snapshots.json": {},
+        "worker_snapshots.md": "# Worker Snapshots\n\nNo worker snapshots recorded yet.\n",
+        "worker_evaluations.jsonl": "",
+        "worker_evaluations.md": "# Worker Evaluations\n\nNo worker evaluations recorded yet.\n",
+        "evolution_proposals.json": [],
+        "evolution_proposals.md": "# Evolution Proposals\n\nNo evolution proposals recorded yet.\n",
+        "review_evidence.json": {},
+        "review_evidence.md": "# Review Evidence\n\nNo review evidence recorded yet.\n",
+        "review_evaluations.json": {},
+        "review_evaluations.md": "# Review Evaluations\n\nNo review evaluations recorded yet.\n",
+        "review_workers.json": {},
+        "review_workers.md": "# Review Workers\n\nNo review workers recorded yet.\n",
+        "review_conflicts.json": {},
+        "review_conflicts.md": "# Review Conflicts\n\nNo review conflicts recorded yet.\n",
+        "experiment_authorizations.json": {},
+        "experiment_authorizations.md": "# Experiment Authorizations\n\nNo experiment authorizations recorded yet.\n",
+        "service.json": {},
         "llm_drafts.json": {},
         "llm_drafts.md": "# LLM Drafts\n\nNo LLM drafts generated yet.\n",
         "revision_provenance.json": {"version": 1, "generated_at": "", "source_fingerprint": "", "items": []},
@@ -349,6 +399,13 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "experiment_plan.md": "# Experiment Plan\n\n",
         "manuscript.patch": "# No manuscript patch notes drafted yet.\n",
     }
+    runtime_db = config.workspace / "runtime.sqlite3"
+    if not runtime_db.exists():
+        actions.append("create runtime.sqlite3")
+        if not dry_run:
+            import sqlite3
+            sqlite3.connect(runtime_db).close()
+            changed = True
     for name, default_value in default_files.items():
         target = config.workspace / name
         if not target.exists():
@@ -514,7 +571,7 @@ def status(base: Path) -> dict[str, object]:
 def clean_workspace(base: Path) -> list[str]:
     config = load_config(base)
     removed = []
-    for dirname in ("artifacts", "logs"):
+    for dirname in ("artifacts", "logs", "worker_snapshots", "worker_runtime", "evolution_patches"):
         target = config.workspace / dirname
         if target.exists():
             shutil.rmtree(target)
@@ -572,6 +629,28 @@ def export_artifacts(base: Path) -> Path:
         "supervisor_feedback.md",
         "supervisor_workers.json",
         "supervisor_workers.md",
+        "supervisor_observations.jsonl",
+        "supervisor_observations.md",
+        "worker_runtime_events.jsonl",
+        "worker_runtime_events.md",
+        "worker_snapshots.json",
+        "worker_snapshots.md",
+        "worker_evaluations.jsonl",
+        "worker_evaluations.md",
+        "evolution_proposals.json",
+        "evolution_proposals.md",
+        "runtime.sqlite3",
+        "review_evidence.json",
+        "review_evidence.md",
+        "review_evaluations.json",
+        "review_evaluations.md",
+        "review_workers.json",
+        "review_workers.md",
+        "review_conflicts.json",
+        "review_conflicts.md",
+        "experiment_authorizations.json",
+        "experiment_authorizations.md",
+        "service.json",
         "llm_drafts.json",
         "llm_drafts.md",
         "revision_provenance.json",

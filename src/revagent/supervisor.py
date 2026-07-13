@@ -15,6 +15,7 @@ from .external_agent import (
     load_external_agent_runs,
     render_external_agent_supervision,
     run_external_agent,
+    supervisor_observations_snapshot,
     write_external_agent_prompt,
     write_dashboard_html,
     write_monitor_report,
@@ -40,6 +41,10 @@ def supervisor_feedback_path(config: Config) -> Path:
 
 def supervisor_workers_path(config: Config) -> Path:
     return config.workspace / "supervisor_workers.json"
+
+
+def supervisor_observations_path(config: Config) -> Path:
+    return config.workspace / "supervisor_observations.jsonl"
 
 
 def repo_plan_path(base: Path) -> Path:
@@ -112,6 +117,132 @@ def phase_10_plan_block() -> str:
 """
 
 
+def phase_11_plan_block() -> str:
+    return """## Phase 11 Scope
+
+- Add background-safe observation for queued workers:
+  - `revagent supervisor-observe [RUN_ID]`
+- Observe queued external-worker runs by checking recorded prompt, launch script, and log artifact paths.
+- Write observation records without launching processes, changing run lifecycle state, or inferring process liveness.
+- Recommend conservative next commands such as `run-log`, `run-mark`, or `run-recover`.
+
+## Phase 11 Test Plan
+
+- Verify queued worker runs produce observation JSONL/Markdown with launch-script readiness.
+- Verify one-run observation fails cleanly for unknown run ids.
+- Verify observation does not mutate `external_agent_runs.jsonl`.
+"""
+
+
+def phase_12_plan_block() -> str:
+    return """## Phase 12 Scope
+
+- Add read-only supervisor observation history:
+  - `revagent supervisor-observation [RUN_ID]`
+- Let operators retrieve recorded queued-worker artifact snapshots without opening workspace files manually.
+- Extend `revagent validate` to flag malformed observation ledger records and incomplete safety declarations.
+- Keep history inspection and validation read-only: neither command may launch a process, mutate external-run lifecycle state, or infer process liveness.
+
+## Phase 12 Test Plan
+
+- Verify `supervisor-observation` lists all records and filters a run id without mutating either ledger.
+- Verify missing observation run ids fail clearly.
+- Verify `revagent validate` warns for malformed or unsafe observation records.
+"""
+
+
+def phase_13_plan_block() -> str:
+    return """## Phase 13 Scope
+
+- Feed persisted worker observations into conservative supervisor planning and feedback.
+- Summarize the latest observation for each external run, including health and the operator-facing next command.
+- Recommend inspection or dry-run recovery for ready or blocked queued workers as advisory work only.
+- Do not refresh observations, launch workers, change external-run lifecycle state, or infer process liveness while planning.
+
+## Phase 13 Test Plan
+
+- Verify supervisor feedback recommends recovery for a latest blocked observation.
+- Verify supervisor plans and feedback render the observation summary and operator command.
+- Verify planning and feedback leave external-run and observation ledgers unchanged.
+"""
+
+
+def phase_14_plan_block() -> str:
+    return """## Phase 14 Scope
+
+- Surface the latest persisted worker-observation summary in `revagent monitor` and the static dashboard.
+- Show per-run health and the recorded operator-facing next command, with a clear validation hint for malformed observation ledgers.
+- Keep monitor and dashboard display-only with respect to worker observations and external-run lifecycle state.
+
+## Phase 14 Test Plan
+
+- Verify monitor and dashboard render a blocked worker observation and its recovery command.
+- Verify malformed observation ledgers render a validation hint instead of breaking monitor or dashboard generation.
+- Verify monitor/dashboard generation does not mutate external-run or observation ledgers.
+"""
+
+
+def phase_15_plan_block() -> str:
+    return """## Phase 15 Scope
+
+- Cross-validate the latest worker observation for each run against the external-run ledger.
+- Warn when an observation references an unknown run or records a status that is stale relative to the current lifecycle record.
+- Preserve append-only observation history by validating only the latest snapshot per run.
+- Keep validation advisory and read-only; it must not refresh observations or mutate either ledger.
+
+## Phase 15 Test Plan
+
+- Verify unknown observed run ids and stale latest statuses produce validation warnings.
+- Verify superseded historical observations do not produce stale-status warnings.
+- Verify validation does not mutate the external-run or observation ledger.
+"""
+
+
+def phase_16_plan_block() -> str:
+    return """## Phase 16 Scope
+
+- Extend read-only `revagent run-supervise [RUN_ID]` with the latest persisted worker observation for each external run.
+- Identify whether the observation lifecycle status is current or stale relative to the external-run ledger, and retain the observation's operator-facing next command.
+- Keep supervision display-only: it must not refresh observations, mutate either ledger, launch a process, or infer process liveness.
+
+## Phase 16 Test Plan
+
+- Verify supervision renders a matching latest observation and its next command.
+- Verify stale observations are labelled without changing either ledger.
+- Verify all-run and one-run supervision remain safe for runs without observations.
+"""
+
+
+def phase_17_plan_block() -> str:
+    return """## Phase 17 Scope
+
+- Surface the latest persisted worker observation in read-only `revagent run-status RUN_ID` output.
+- Mark the observation as current or stale against the current external-run lifecycle status, including its recorded health and recommended command.
+- Keep run detail inspection display-only: it must not refresh observations, mutate ledgers, launch a process, or infer process liveness.
+
+## Phase 17 Test Plan
+
+- Verify run detail renders current and stale worker observations with their next command.
+- Verify missing or malformed observation ledgers render a clear non-mutating hint.
+- Verify run-status inspection leaves both ledgers unchanged.
+"""
+
+
+def phase_18_plan_block() -> str:
+    return """## Phase 18 Scope
+
+- Surface latest persisted worker-observation health and lifecycle consistency in read-only `revagent run-status` history output.
+- Render a validation hint when the observation ledger cannot be parsed, without breaking external-run history inspection.
+- Keep historical status inspection display-only: it must not refresh observations, mutate ledgers, launch a process, or infer process liveness.
+
+## Phase 18 Test Plan
+
+- Verify run history renders current and stale observation summaries for matching runs.
+- Verify malformed observation ledgers render a validation hint.
+- Verify history rendering leaves both ledgers unchanged.
+"""
+
+
 def maybe_update_plan_md(base: Path, phase: int = 8) -> Path:
     path = repo_plan_path(base)
     text = read_text(path) if path.exists() else "# RevAgent Iteris-Style Roadmap\n\n"
@@ -121,6 +252,22 @@ def maybe_update_plan_md(base: Path, phase: int = 8) -> Path:
         write_text(path, text.rstrip() + "\n\n" + phase_9_plan_block())
     if phase == 10 and not phase_present(text, 10):
         write_text(path, text.rstrip() + "\n\n" + phase_10_plan_block())
+    if phase == 11 and not phase_present(text, 11):
+        write_text(path, text.rstrip() + "\n\n" + phase_11_plan_block())
+    if phase == 12 and not phase_present(text, 12):
+        write_text(path, text.rstrip() + "\n\n" + phase_12_plan_block())
+    if phase == 13 and not phase_present(text, 13):
+        write_text(path, text.rstrip() + "\n\n" + phase_13_plan_block())
+    if phase == 14 and not phase_present(text, 14):
+        write_text(path, text.rstrip() + "\n\n" + phase_14_plan_block())
+    if phase == 15 and not phase_present(text, 15):
+        write_text(path, text.rstrip() + "\n\n" + phase_15_plan_block())
+    if phase == 16 and not phase_present(text, 16):
+        write_text(path, text.rstrip() + "\n\n" + phase_16_plan_block())
+    if phase == 17 and not phase_present(text, 17):
+        write_text(path, text.rstrip() + "\n\n" + phase_17_plan_block())
+    if phase == 18 and not phase_present(text, 18):
+        write_text(path, text.rstrip() + "\n\n" + phase_18_plan_block())
     return path
 
 
@@ -233,6 +380,7 @@ def build_supervisor_feedback(base: Path, *, update_plan: bool = False) -> dict[
         if task.get("status") == "failed"
     ]
     blocked_tasks = list(latest_run.get("blocked", [])) if latest_run else []
+    observation_summary = supervisor_observation_summary(config)
     eval_failures = failed_eval_checks(eval_report)
     recommendations = []
     if eval_failures:
@@ -280,6 +428,31 @@ def build_supervisor_feedback(base: Path, *, update_plan: bool = False) -> dict[
                 "reason": f"{len(blocked_tasks)} manual-only supervisor tasks are blocking autonomy",
             }
         )
+    latest_observations = observation_summary.get("latest", [])
+    if isinstance(latest_observations, list):
+        for observation in latest_observations:
+            if not isinstance(observation, dict):
+                continue
+            health = observation.get("health")
+            run_id = str(observation.get("run_id", ""))
+            if health == "blocked":
+                recommendations.append(
+                    {
+                        "kind": "recover_blocked_worker_observation",
+                        "priority": "high",
+                        "command": str(observation.get("next_command") or f"revagent run-recover {run_id} --dry-run"),
+                        "reason": f"latest worker observation for {run_id} is blocked",
+                    }
+                )
+            elif health == "ready_to_launch":
+                recommendations.append(
+                    {
+                        "kind": "inspect_ready_worker_launch",
+                        "priority": "medium",
+                        "command": str(observation.get("next_command") or f"revagent run-log {run_id} --artifact launch"),
+                        "reason": f"latest worker observation for {run_id} has a ready launch script",
+                    }
+                )
     if not recommendations:
         recommendations.append(
             {
@@ -303,6 +476,7 @@ def build_supervisor_feedback(base: Path, *, update_plan: bool = False) -> dict[
         "latest_supervisor_status": latest_run.get("status", "") if latest_run else "",
         "failed_supervisor_tasks": failed_tasks,
         "blocked_tasks": blocked_tasks,
+        "observation_summary": observation_summary,
         "recommendations": recommendations,
         "safety": {
             "advisory_only": True,
@@ -396,6 +570,145 @@ def build_supervisor_workers(
     return worker_plan
 
 
+def observation_artifact(path_value: object) -> dict[str, object]:
+    """Describe a recorded artifact without reading or changing the process that owns it."""
+    path_text = str(path_value or "")
+    if not path_text:
+        return {"status": "not_recorded", "path": ""}
+    path = Path(path_text)
+    if not path.exists():
+        return {"status": "missing", "path": path_text}
+    return {"status": "present", "path": path_text, "size_bytes": path.stat().st_size}
+
+
+def observe_supervisor_workers(base: Path, run_id: str | None = None, *, update_plan: bool = False) -> list[dict[str, object]]:
+    """Record a read-only artifact snapshot for queued external runs.
+
+    The observation deliberately does not determine whether a launch script or
+    external agent process has started. Lifecycle changes remain an operator task.
+    """
+    config = load_config(base)
+    if update_plan:
+        maybe_update_plan_md(base, 11)
+    runs = load_external_agent_runs(config)
+    if run_id:
+        selected = [run for run in runs if str(run.get("run_id", "")) == run_id]
+        if not selected:
+            raise ValueError(f"unknown external agent run {run_id}")
+    else:
+        selected = [run for run in runs if str(run.get("status", "")) == "queued"]
+
+    observations = []
+    for run in selected:
+        artifacts = {
+            "prompt": observation_artifact(run.get("prompt_path")),
+            "launch": observation_artifact(run.get("launch_script")),
+            "stdout": observation_artifact(run.get("stdout_path")),
+            "stderr": observation_artifact(run.get("stderr_path")),
+        }
+        status = str(run.get("status", "") or "unknown")
+        launch_ready = artifacts["launch"]["status"] == "present"
+        if status != "queued":
+            health = "not_queued"
+            next_command = f"revagent run-supervise {run.get('run_id', '')}"
+        elif launch_ready:
+            health = "ready_to_launch"
+            next_command = f"revagent run-log {run.get('run_id', '')} --artifact launch"
+        else:
+            health = "blocked"
+            next_command = f"revagent run-recover {run.get('run_id', '')} --dry-run"
+        observations.append(
+            {
+                "version": 1,
+                "observed_at": now_iso(),
+                "run_id": run.get("run_id", ""),
+                "run_status": status,
+                "health": health,
+                "artifacts": artifacts,
+                "next_command": next_command,
+                "safety": {
+                    "launches_processes": False,
+                    "mutates_external_run_ledger": False,
+                    "infers_process_liveness": False,
+                },
+            }
+        )
+    append_supervisor_observations(config, observations)
+    return observations
+
+
+def load_supervisor_observations(config: Config) -> list[dict[str, object]]:
+    path = supervisor_observations_path(config)
+    if not path.exists():
+        return []
+    observations = []
+    for line in read_text(path).splitlines():
+        if line.strip():
+            observations.append(json.loads(line))
+    return observations
+
+
+def get_supervisor_observations(base: Path, run_id: str | None = None, *, update_plan: bool = False) -> list[dict[str, object]]:
+    """Return persisted observations without refreshing artifacts or changing ledgers."""
+    if update_plan:
+        maybe_update_plan_md(base, 12)
+    observations = load_supervisor_observations(load_config(base))
+    if run_id:
+        observations = [record for record in observations if str(record.get("run_id", "")) == run_id]
+        if not observations:
+            raise ValueError(f"no supervisor observations recorded for external agent run {run_id}")
+    return observations
+
+
+def supervisor_observation_summary(config: Config) -> dict[str, object]:
+    """Summarize the latest persisted observation per run without refreshing it."""
+    try:
+        observations = load_supervisor_observations(config)
+    except json.JSONDecodeError as exc:
+        return {"count": 0, "latest": [], "health_counts": {}, "parse_error": str(exc)}
+    latest_by_run: dict[str, dict[str, object]] = {}
+    for observation in observations:
+        run_id = str(observation.get("run_id", ""))
+        if run_id:
+            latest_by_run[run_id] = observation
+    latest = list(latest_by_run.values())
+    health_counts: dict[str, int] = {}
+    for observation in latest:
+        health = str(observation.get("health", "unknown"))
+        health_counts[health] = health_counts.get(health, 0) + 1
+    return {"count": len(latest), "latest": latest, "health_counts": health_counts, "parse_error": ""}
+
+
+def append_supervisor_observations(config: Config, observations: list[dict[str, object]]) -> None:
+    all_observations = load_supervisor_observations(config)
+    all_observations.extend(observations)
+    write_text(
+        supervisor_observations_path(config),
+        "".join(json.dumps(observation, ensure_ascii=False, sort_keys=True) + "\n" for observation in all_observations),
+    )
+    write_text(config.workspace / "supervisor_observations.md", render_supervisor_observations(all_observations))
+
+
+def render_supervisor_observations(observations: list[dict[str, object]]) -> str:
+    lines = ["# Supervisor Observations", ""]
+    if not observations:
+        lines.append("No queued worker observations recorded yet.")
+        return "\n".join(lines) + "\n"
+    for observation in observations[-80:]:
+        lines.append(
+            f"- `{observation.get('run_id', '')}` status={observation.get('run_status', '')} "
+            f"health={observation.get('health', '')}"
+        )
+        artifacts = observation.get("artifacts", {})
+        if isinstance(artifacts, dict):
+            lines.append(
+                "  artifacts: "
+                + ", ".join(f"{name}={detail.get('status', '')}" for name, detail in sorted(artifacts.items()) if isinstance(detail, dict))
+            )
+        lines.append(f"  next: `{observation.get('next_command', '')}`")
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def build_supervisor_plan(base: Path, *, update_plan: bool = False) -> dict[str, object]:
     config = load_config(base)
     if update_plan:
@@ -408,6 +721,7 @@ def build_supervisor_plan(base: Path, *, update_plan: bool = False) -> dict[str,
     dashboard_path = write_dashboard_html(base)
     validation = validate_workspace(base)
     feedback = build_supervisor_feedback(base)
+    observation_summary = supervisor_observation_summary(config)
     external_runs = load_external_agent_runs(config)
     phase_count = completed_phase_count(plan_text)
     next_phase = phase_count + 1 if not phase_present(plan_text, 8) else 8
@@ -426,6 +740,7 @@ def build_supervisor_plan(base: Path, *, update_plan: bool = False) -> dict[str,
         "validation_ok": validation.get("ok", False),
         "validation_warnings": validation.get("warnings", []),
         "validation_issues": validation.get("issues", []),
+        "observation_summary": observation_summary,
         "feedback": feedback_summary(feedback),
         "tasks": supervisor_tasks(base, monitor, validation),
         "safety": {
@@ -457,6 +772,17 @@ def render_supervisor_plan(plan: dict[str, object]) -> str:
     if feedback:
         lines.append(f"- Feedback eval ok: {str(feedback.get('eval_ok', False)).lower()}")
         lines.append(f"- Feedback recommendation: `{top.get('command', '')}` {top.get('reason', '')}")
+    observation_summary = plan.get("observation_summary", {})
+    if isinstance(observation_summary, dict):
+        lines.append(f"- Latest worker observations: {observation_summary.get('count', 0)}")
+        if observation_summary.get("parse_error"):
+            lines.append("- Latest worker observations: unreadable; run `revagent validate`")
+        for observation in observation_summary.get("latest", []):
+            if isinstance(observation, dict):
+                lines.append(
+                    f"  - `{observation.get('run_id', '')}` health={observation.get('health', '')} "
+                    f"next=`{observation.get('next_command', '')}`"
+                )
     lines.extend(["", "## Tasks", ""])
     for task in plan.get("tasks", []):
         lines.append(f"- `{task.get('id', '')}` [{task.get('status', '')}] {task.get('kind', '')}")
@@ -516,7 +842,7 @@ def execute_supervisor_task(base: Path, task: dict[str, object], *, dry_run: boo
         result["status"] = "done" if state.get("summary", {}).get("failed", 0) == 0 else "failed"
     elif kind == "summarize_external_runs":
         config = load_config(base)
-        text = render_external_agent_supervision(load_external_agent_runs(config))
+        text = render_external_agent_supervision(load_external_agent_runs(config), supervisor_observations_snapshot(config))
         write_text(config.workspace / "external_agent_supervision.md", text)
         result["result"] = str(config.workspace / "external_agent_supervision.md")
         result["status"] = "done"
@@ -590,6 +916,7 @@ def render_supervisor_feedback(feedback: dict[str, object]) -> str:
         f"- Validation ok: {str(feedback.get('validation_ok', False)).lower()}",
         f"- Supervisor runs: {feedback.get('supervisor_run_count', 0)}",
         f"- Latest supervisor status: {feedback.get('latest_supervisor_status', '') or 'none'}",
+        f"- Latest worker observations: {feedback.get('observation_summary', {}).get('count', 0)}",
         "",
         "## Recommendations",
         "",
@@ -613,6 +940,15 @@ def render_supervisor_feedback(feedback: dict[str, object]) -> str:
         lines.extend(["", "## Manual-Only Blockers", ""])
         for task in blocked:
             lines.append(f"- `{task.get('kind', '')}` command=`{task.get('command', '')}`")
+    observation_summary = feedback.get("observation_summary", {})
+    if isinstance(observation_summary, dict) and observation_summary.get("latest"):
+        lines.extend(["", "## Latest Worker Observations", ""])
+        for observation in observation_summary["latest"]:
+            if isinstance(observation, dict):
+                lines.append(
+                    f"- `{observation.get('run_id', '')}` health={observation.get('health', '')} "
+                    f"next=`{observation.get('next_command', '')}`"
+                )
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -655,6 +991,11 @@ __all__ = [
     "render_supervisor_plan",
     "render_supervisor_runs",
     "build_supervisor_workers",
+    "get_supervisor_observations",
+    "load_supervisor_observations",
+    "supervisor_observation_summary",
+    "observe_supervisor_workers",
+    "render_supervisor_observations",
     "render_supervisor_workers",
     "run_supervisor_loop",
 ]

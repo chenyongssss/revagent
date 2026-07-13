@@ -1,5 +1,7 @@
 # revagent
 
+[简体中文](README.zh-CN.md)
+
 `revagent` is a local-first revision workspace CLI for computational mathematics
 papers. It turns a LaTeX project and reviewer comments into structured,
 reviewable artifacts: review item tracking, a manuscript index, response-letter
@@ -8,6 +10,10 @@ drafts, proof audits, experiment plans, and conservative patch notes.
 The tool is intentionally narrow. It does not verify mathematical correctness,
 silently rewrite manuscript sources, execute experiments, or invent numerical
 results.
+
+Remote providers are disabled by default in the persistent project runtime.
+Any future remote review action requires a task-scoped, time-limited
+`authorize-remote` record describing the provider, purpose, and artifact classes.
 
 ## Install
 
@@ -60,6 +66,23 @@ revagent run-log RUN_ID --artifact prompt
 revagent run-supervise
 revagent run-recover --dry-run
 revagent run-mark RUN_ID --status done --note "Finished from launch script."
+revagent worker-snapshot RUN_ID
+revagent run-start RUN_ID
+revagent run-refresh RUN_ID
+revagent worker-evaluate RUN_ID
+revagent evolution-plan
+revagent evolution-approve P001 --note "Reviewed source change."
+revagent evolution-apply P001 --approved
+revagent project-init
+revagent project-cycle --workers 2
+revagent serve --once
+revagent project-status
+revagent worker-plan R001 --backend codex
+revagent review-sandbox-create W-R001-proof
+revagent experiment-authorize-worker W-R002-experiment --command "python scripts/run_demo.py" --timeout-seconds 600 --cpu 1 --memory-mb 1024
+revagent benchmark-run --fixture benchmarks/synthetic/basic
+revagent project-recover
+revagent service-health
 revagent dashboard
 revagent agent-plan --goal rebuttal-draft
 revagent agent-session
@@ -133,6 +156,10 @@ run experiments.
 - `supervisor_feedback.md`: reviewable rendering of supervisor strategy feedback.
 - `supervisor_workers.json`: generated conservative external worker assignment plan.
 - `supervisor_workers.md`: reviewable rendering of supervisor worker assignments.
+- `worker_runtime_events.jsonl`: append-only explicit worker lifecycle events.
+- `worker_snapshots.json`: isolated source-snapshot manifests for controlled workers.
+- `worker_evaluations.jsonl`: append-only snapshot patch and test-gate evaluations.
+- `evolution_proposals.json`: manual-gated RevAgent source evolution proposals.
 - `llm_drafts.json`: offline reviewer-intent, response, candidate-text drafts, author review status, and quality status marked as `llm_draft`.
 - `llm_drafts.md`: reviewable rendering of LLM drafts, review notes, and quality issues; these are never auto-approved or auto-applied.
 - `revision_provenance.json`: per-item provenance snapshot linking reviewer comments, LLM drafts, candidates, proof/experiment gates, and apply records.
@@ -187,14 +214,35 @@ run experiments.
 - `revagent submit-pack --dry-run`: summarize missing response-letter, TeX, validation, manual-gate, and blocker pieces before final submission.
 - `revagent validate [--compile]`: validate schema, LaTeX references, and optionally run `latexmk`.
 - `revagent status`: show item counts and workspace configuration.
+- `revagent project-init`: import review items into the SQLite-backed local project runtime.
+- `revagent project-cycle [--workers 1|2]`: run one bounded cycle of reversible analysis, planning, and evidence collection.
+- `revagent serve [--host 127.0.0.1] [--port 8765] [--workers 1|2]`: run the loopback-only project runtime; `--once` performs one cycle without serving HTTP.
+- `revagent project-status|project-pause|project-resume|project-stop`: inspect or control local scheduling without changing review-item approval gates.
+- `revagent authorize-remote TASK_ID ...`: record one time-limited, task-scoped remote-provider consent before any future remote review action.
+- `revagent review-evaluate ITEM_ID`: inspect deterministic evidence readiness; it never closes a review item.
+- `revagent worker-plan ITEM_ID --backend codex|openai-compatible`: create role-specific review workers; proof items use proof workers and experiment items use code plus experiment workers.
+- `revagent review-sandbox-create|review-worker-start|review-worker-collect WORKER_ID`: create a full project snapshot, run one Codex worker inside it, and collect an immutable result bundle/conflict record.
+- `revagent experiment-authorize-worker ...` and `experiment-start-worker AUTHORIZATION_ID`: explicitly authorize and run one bounded sandbox experiment; results remain unconfirmed evidence.
+- `revagent review-rubric ITEM_ID --authorization ID`: consume one matching remote authorization and run an advisory semantic rubric; it never closes an item.
+- `revagent benchmark-run --fixture PATH`: run a deterministic review-project benchmark and write completion, evidence, false-ready, and authorization-policy metrics.
+- `revagent project-recover|service-health`: reconcile expired runtime leases after interruption and inspect local service/runtime health.
 - `revagent agent-status`: build and print the safe-auto agent task queue without executing tasks.
 - `revagent monitor`: refresh state and print environment checks, blockers, and the next recovery command.
 - `revagent run [--goal text] [--backend codex] [--dry-run] [--detach] [--limit N] [--dangerous-autonomy]`: generate a RevAgent-aware prompt and optionally launch the external Codex runner. `--detach` writes a launch script and records a queued run without starting a background daemon. By default, the prompt preserves RevAgent manual safety gates.
-- `revagent run-status [RUN_ID]`: show external agent run history or one run with recovery hints.
+- `revagent run-status [RUN_ID]`: show external-agent run history or one run with recovery hints and the latest persisted worker-observation health.
 - `revagent run-log RUN_ID [--artifact prompt|stdout|stderr|launch]`: print a recorded external-run prompt, log, or queued launch script.
-- `revagent run-supervise [RUN_ID]`: summarize external-run health, artifact readiness, recovery hint, and next command without mutating run state.
+- `revagent run-supervise [RUN_ID]`: summarize external-run health, artifact readiness, recovery hint, and the latest persisted worker observation without mutating either ledger.
 - `revagent run-recover [RUN_ID] [--dry-run]`: regenerate or rerun a previous external agent request using the same backend, goal, and autonomy setting.
 - `revagent run-mark RUN_ID --status done|failed|canceled [--note text]`: manually update a queued external run after running its launch script.
+- `revagent worker-snapshot RUN_ID`: create a source-only, isolated worker snapshot for a queued run. This is available only from a RevAgent source checkout.
+- `revagent run-start RUN_ID`: explicitly launch one queued worker inside its validated snapshot; supervisors never invoke this command.
+- `revagent run-refresh RUN_ID`: record current worker completion state from a PID/create-time-verified wrapper manifest.
+- `revagent run-cancel RUN_ID --note text`: explicitly terminate a running worker and record the operator note.
+- `revagent worker-evaluate RUN_ID`: explicitly generate a patch and run `python -m pytest` inside a completed worker snapshot.
+- `revagent evolution-plan`: create source evolution proposals only from passing worker evaluations.
+- `revagent evolution-review PROPOSAL_ID`: inspect one source evolution proposal.
+- `revagent evolution-approve|evolution-reject PROPOSAL_ID --note text`: record a manual source-evolution decision.
+- `revagent evolution-apply PROPOSAL_ID --approved`: apply an approved, fingerprint-current source proposal after creating a backup; it never commits or pushes.
 - `revagent dashboard`: write `.revagent/dashboard/index.html` with the current agent, lane, readiness, decision, and run state.
 - `revagent agent-plan --goal rebuttal-draft|proof-response|experiment-response|full-revision-pass`: create a goal-oriented agent session.
 - `revagent agent-session`: show recorded agent sessions.
@@ -213,6 +261,8 @@ run experiments.
 - `revagent supervisor-loop [--cycles N] [--dry-run] [--update-plan]`: execute only safe internal supervisor tasks and stop at manual gates.
 - `revagent supervisor-feedback [--update-plan]`: generate read-only strategy feedback from supervisor runs, agent evals, validation, and manual gates.
 - `revagent supervisor-workers [--workers N] [--queue] [--update-plan]`: create isolated external-worker prompts for safe supervisor tasks; `--queue` records launch scripts without starting processes.
+- `revagent supervisor-observe [RUN_ID] [--update-plan]`: record read-only prompt, launch-script, and log artifact observations for queued external workers; it never starts processes or changes run lifecycle state.
+- `revagent supervisor-observation [RUN_ID] [--update-plan]`: show the persisted worker-observation history, optionally filtered to one external run; it is read-only.
 - `revagent doctor`: check Python, workspace, profiles, and optional `latexmk`.
 - `revagent clean`: remove generated logs and exported artifacts.
 - `revagent export`: copy deliverables into `.revagent/artifacts`.

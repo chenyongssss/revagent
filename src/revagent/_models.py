@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 WORKSPACE = ".revagent"
-CURRENT_SCHEMA_VERSION = "17"
+CURRENT_SCHEMA_VERSION = "32"
 PLANNING_STATUSES = {"triaged", "planned", "drafted", "evidence_ready", "approved", "incorporated", "closed"}
 EXPERIMENT_CONTRACT_STATUSES = {"not_planned", "planned", "artifact_recorded", "incorporated"}
 SCHEMA_FILES = [
@@ -47,6 +47,28 @@ SCHEMA_FILES = [
     "supervisor_feedback.md",
     "supervisor_workers.json",
     "supervisor_workers.md",
+    "supervisor_observations.jsonl",
+    "supervisor_observations.md",
+    "worker_runtime_events.jsonl",
+    "worker_runtime_events.md",
+    "worker_snapshots.json",
+    "worker_snapshots.md",
+    "worker_evaluations.jsonl",
+    "worker_evaluations.md",
+    "evolution_proposals.json",
+    "evolution_proposals.md",
+    "runtime.sqlite3",
+    "review_evidence.json",
+    "review_evidence.md",
+    "review_evaluations.json",
+    "review_evaluations.md",
+    "review_workers.json",
+    "review_workers.md",
+    "review_conflicts.json",
+    "review_conflicts.md",
+    "experiment_authorizations.json",
+    "experiment_authorizations.md",
+    "service.json",
     "llm_drafts.json",
     "llm_drafts.md",
     "revision_provenance.json",

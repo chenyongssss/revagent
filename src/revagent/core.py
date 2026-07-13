@@ -23,4 +23,8 @@ from .readiness import *  # noqa: F403
 from .review_analysis import *  # noqa: F403
 from .external_agent import *  # noqa: F403
 from .supervisor import *  # noqa: F403
+from .project_runtime import *  # noqa: F403
+from .review_workers import *  # noqa: F403
+from .review_rubric import *  # noqa: F403
+from .benchmark import *  # noqa: F403
 from .validation import *  # noqa: F403
