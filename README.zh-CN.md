@@ -4,20 +4,45 @@
 
 RevAgent 将 LaTeX 稿件和审稿意见整理为可审计的本地工件：审稿事项、源码定位、返修计划、回复草稿、证据记录和作者决策。它帮助作者检查返修过程，而不是取代作者或子领域专家。
 
-## 安装
+## 1. 安装与部署
+
+在 Codex 工作区终端或任意具备 Python 3.10+ 的本地终端中运行：
 
 ```powershell
+git clone https://github.com/chenyongssss/revagent.git
+cd revagent
+python -m venv .venv
+.\\.venv\\Scripts\\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -e .[dev]
+python -m pytest
 ```
 
-需要 Python 3.10 或更高版本。
+macOS 或 Linux 请用 `source .venv/bin/activate` 激活环境。
 
-## 从这里开始
+如果你使用 Codex，先打开克隆后的 `revagent` 文件夹，并在其终端执行上述安装命令。实际处理论文时，再用 Codex 打开独立的 review 工作目录；此时可让 Codex 帮你检查本地工件或运行 RevAgent 命令。
 
-在 LaTeX 项目副本中运行：
+## 2. 准备 review 工作目录
+
+请从稿件的**副本**开始，每轮返修使用一个独立文件夹：
+
+```text
+my-paper-review/
+├── manuscript/
+│   ├── paper.tex
+│   ├── sections/
+│   └── bibliography.bib
+└── reviewer_comments.md
+```
+
+把完整 LaTeX 源码树放入 `manuscript/`，包括被 `\\input` 或 `\\include` 引用的文件。把编辑和审稿意见放入 `reviewer_comments.md`；支持本地 Markdown、文本、DOCX 与 PDF 导入。
+
+## 3. 第一次运行
+
+进入 `my-paper-review/` 后执行：
 
 ```powershell
-revagent init --journal siam --tex-root . --main-tex paper.tex
+revagent init --journal siam --tex-root manuscript --main-tex paper.tex
 revagent ingest-comments reviewer_comments.md
 revagent plan
 revagent draft
@@ -28,7 +53,7 @@ revagent validate
 
 所有生成记录都保存在 `.revagent/`。在修改稿件前，请先审阅回复草稿和候选修改。
 
-## 日常工作流
+## 4. 审阅与交接
 
 | 目标 | 命令 |
 | --- | --- |

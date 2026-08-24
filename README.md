@@ -4,20 +4,45 @@
 
 RevAgent turns a LaTeX manuscript and reviewer comments into auditable local artifacts: review items, source locations, revision plans, response drafts, evidence records, and author decisions. It is designed to make a revision easier to inspect—not to replace an author or domain expert.
 
-## Install
+## 1. Install in Codex or a terminal
+
+Use a terminal in the Codex workspace, or any local terminal with Python 3.10+:
 
 ```powershell
+git clone https://github.com/chenyongssss/revagent.git
+cd revagent
+python -m venv .venv
+.\\.venv\\Scripts\\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -e .[dev]
+python -m pytest
 ```
 
-Python 3.10 or newer is required.
+On macOS or Linux, activate the environment with `source .venv/bin/activate`.
 
-## Start here
+If you use Codex, open the cloned `revagent` folder first and run the commands above in its terminal. Afterwards, open your separate review workspace in Codex when you want assistance inspecting local artifacts or running RevAgent commands.
 
-From a copy of your LaTeX project:
+## 2. Prepare a review workspace
+
+Work from a **copy** of the manuscript, not your only original. Create one folder per revision:
+
+```text
+my-paper-review/
+├── manuscript/
+│   ├── paper.tex
+│   ├── sections/
+│   └── bibliography.bib
+└── reviewer_comments.md
+```
+
+Put the complete LaTeX source tree in `manuscript/`, including files referenced by `\\input` or `\\include`. Put editor/reviewer comments in `reviewer_comments.md`; local Markdown, text, DOCX, and PDF imports are supported.
+
+## 3. Run the first review pass
+
+From `my-paper-review/`:
 
 ```powershell
-revagent init --journal siam --tex-root . --main-tex paper.tex
+revagent init --journal siam --tex-root manuscript --main-tex paper.tex
 revagent ingest-comments reviewer_comments.md
 revagent plan
 revagent draft
@@ -28,7 +53,7 @@ revagent validate
 
 All generated records remain in `.revagent/`. Review the response draft and candidate edits before making any manuscript change.
 
-## The everyday workflow
+## 4. Review and hand off
 
 | Goal | Command |
 | --- | --- |
