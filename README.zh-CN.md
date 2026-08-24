@@ -2,13 +2,9 @@
 
 [English](README.md)
 
-RevAgent 是面向计算数学论文修订的本地优先 review-agent 工具。它把 LaTeX 稿件、审稿意见、证明检查、代码与实验约束组织为可审查的工作区工件，帮助作者团队推进返修与回复信。
+> **v0.1.0 Alpha：仅 shadow-only，仍需校准。** RevAgent 是一个本地优先的计算数学返修工作区；它不判定证明或数值结论正确性、不提交论文、不上传项目材料，也不公开用户数据。
 
-## 状态与边界
-
-当前版本为 alpha。RevAgent 不验证数学正确性，不自动批准证明、实验结果或稿件修改，不自动关闭审稿项，也不会提交论文。
-
-默认所有工作在本地完成。启用外部 Codex 或 OpenAI-compatible provider 前，作者必须确认数据政策。语义 rubric 评审可能发送完整项目快照，但只会在任务级、一次性、限时授权后执行。
+RevAgent 将 LaTeX 稿件和审稿意见整理为可审计的本地工件：审稿事项、源码定位、返修计划、回复草稿、证据记录和作者决策。它帮助作者检查返修过程，而不是取代作者或子领域专家。
 
 ## 安装
 
@@ -16,80 +12,64 @@ RevAgent 是面向计算数学论文修订的本地优先 review-agent 工具。
 python -m pip install -e .[dev]
 ```
 
-## 基本流程
+需要 Python 3.10 或更高版本。
+
+## 从这里开始
+
+在 LaTeX 项目副本中运行：
 
 ```powershell
-cd path\to\latex-paper
 revagent init --journal siam --tex-root . --main-tex paper.tex
 revagent ingest-comments reviewer_comments.md
-revagent project-init
-revagent project-cycle --workers 2
-revagent project-status
-revagent review-evaluate R001
+revagent plan
+revagent draft
+revagent cockpit
+revagent validate
 ```
 
-常规返修流程也可使用 `plan`、`analyze-review`、`plan-item`、`draft`、`proof-plan`、`experiment-contract`、`provenance` 和 `readiness`。所有结果均写入 `.revagent/`，以 JSON/Markdown 工件保留审计线索。
+所有生成记录都保存在 `.revagent/`。在修改稿件前，请先审阅回复草稿和候选修改。
 
-## 项目运行时
+## 日常工作流
 
-`revagent serve` 启动仅绑定本机回环地址的项目运行时；它只推进可逆的分析、规划与证据收集任务。可用命令包括：
+| 目标 | 命令 |
+| --- | --- |
+| 查看一条审稿事项 | `revagent inspect R001` |
+| 创建或查看单项计划 | `revagent plan-item R001` / `revagent review-analysis R001` |
+| 审计证明类请求 | `revagent proof-plan R001`，再运行 `revagent proof-audit R001` |
+| 记录实验复现约束 | `revagent experiment-contract R002` |
+| 查看追踪关系和阻塞项 | `revagent response-trace` / `revagent readiness` |
+| 打开本地总览 | `revagent cockpit` |
+| 检查最终交接包 | `revagent submit-pack --dry-run` |
+
+使用 `revagent --help` 查看完整命令，使用 `revagent <command> --help` 查看具体参数。CLI 仍保留运行时、worker、基准和自动化等高级接口，供受控集成或脚本调用；首次返修并不需要使用它们。
+
+## 安全边界
+
+- 证明、稳定性、收敛性、实验、回复事实和最终 PDF 必须由作者或子领域专家显式签核。
+- 候选修改必须先供人工审阅，绝不会被静默应用。
+- 实验必须显式授权；其输出是待确认的证据，而不是自动成立的科学结论。
+- 远程 provider 默认关闭。启用后也需要针对任务、用途和材料类别的一次性限时授权。
+- 本地 cockpit、验证、溯源和 readiness 报告会显式显示缺失、过期、豁免与升级事项。
+
+完整的隐私与执行边界见 [SECURITY.md](SECURITY.md)。
+
+## 社区校准
+
+仓库只包含合成 fixtures。若你希望准备一个自愿贡献的案例，先生成数据卡模板，再导出一个**仅本地的元数据候选包**：
 
 ```powershell
-revagent project-pause
-revagent project-resume
-revagent project-recover
-revagent service-health
-revagent project-stop
+revagent contribution-template --case-id community-001
+revagent contribution-export --case-dir C:\path\to\deidentified_case --case-id community-001 --data-card C:\path\to\data_card.json --confirm
 ```
 
-运行时使用 SQLite 保存任务图、lease、事件、证据、作者门禁和远程授权。证明批准、实验结果确认、候选修改应用、审稿项关闭始终需要作者显式操作。
+该导出包只包含数据卡、安全扫描和文件指纹；绝不复制论文原文、审稿意见、代码或数据。RevAgent 不验证脱敏或发表权利，任何分享仍需人工治理审核。
 
-## 专业 Review Worker
-
-RevAgent 可为审稿项创建文本、证明、代码与实验 worker。worker 在完整项目快照中运行，不直接修改父项目；结果通过 bundle 汇聚，并对相同变更路径生成冲突记录。
+## 开发与发布状态
 
 ```powershell
-revagent worker-plan R001 --backend codex
-revagent review-sandbox-create W-R001-proof
-revagent review-worker-start W-R001-proof
-revagent review-worker-collect W-R001-proof
-```
-
-实验 worker 必须先获授权，授权记录绑定命令、快照、工作目录、超时、CPU、内存和预期工件：
-
-```powershell
-revagent experiment-authorize-worker W-R002-experiment `
-  --command "python scripts/run_demo.py" --timeout-seconds 600 `
-  --cpu 1 --memory-mb 1024 --artifact results/demo.csv
-revagent experiment-start-worker EXP-001
-```
-
-实验执行结果仅是待作者确认的证据，不会自动写入论文或形成科学结论。
-
-## 语义评审与远程授权
-
-先运行确定性证据检查，再对同一任务创建一次性授权并运行 rubric：
-
-```powershell
-revagent authorize-remote R001:collect_evidence `
-  --provider openai-compatible --model model-name --purpose rubric `
-  --artifact-class project_snapshot --ttl-minutes 30
-revagent review-rubric R001 --authorization 1
-```
-
-rubric 输出覆盖度、回复准确性、稿件定位、证据支持、矛盾和不确定性分数。它只能将项目标记为“可供作者关闭”，不会自动关闭审稿项。
-
-## 基准与验证
-
-仓库仅包含合成 benchmark。真实案例必须在获得许可、完成脱敏审查、附带数据卡与预期标签后单独发布。
-
-```powershell
-revagent benchmark-run --fixture benchmarks/synthetic/basic
 python -m pytest
 ```
 
-CI 覆盖 Windows、Linux 和 macOS。受保护的周度 provider E2E 只使用合成项目，不上传原始 prompts、模型响应或私有稿件。
+CI 覆盖 Windows、Linux 和 macOS。发布资产附带校验和、SPDX SBOM 和 GitHub 构建证明。v0.1.0 的限制与验证方法见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 
-## 安全与贡献
-
-请阅读 [SECURITY.md](SECURITY.md) 了解本地文件、外部 provider 和完整快照传输的边界；贡献规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+更多内容：[演示项目](examples/latex_revision_demo/)、[贡献指南](CONTRIBUTING.md)、[安全政策](SECURITY.md) 和 [变更日志](CHANGELOG.md)。
