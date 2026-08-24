@@ -4,6 +4,8 @@
 
 RevAgent 将 LaTeX 稿件和审稿意见整理为可审计的本地工件：审稿事项、源码定位、返修计划、回复草稿、证据记录和作者决策。它帮助作者检查返修过程，而不是取代作者或子领域专家。
 
+![RevAgent 工作流：审稿意见经过可审计的返修图谱、证据检查、本地保护与人工签核。](docs/assets/revagent-workflow.png)
+
 ## 1. 安装与部署
 
 在 Codex 工作区终端或任意具备 Python 3.10+ 的本地终端中运行：
@@ -12,7 +14,7 @@ RevAgent 将 LaTeX 稿件和审稿意见整理为可审计的本地工件：审�
 git clone https://github.com/chenyongssss/revagent.git
 cd revagent
 python -m venv .venv
-.\\.venv\\Scripts\\Activate.ps1
+& .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e .[dev]
 python -m pytest
@@ -28,11 +30,11 @@ macOS 或 Linux 请用 `source .venv/bin/activate` 激活环境。
 
 ```text
 my-paper-review/
-├── manuscript/
-│   ├── paper.tex
-│   ├── sections/
-│   └── bibliography.bib
-└── reviewer_comments.md
+  manuscript/
+    paper.tex
+    sections/
+    bibliography.bib
+  reviewer_comments.md
 ```
 
 把完整 LaTeX 源码树放入 `manuscript/`，包括被 `\\input` 或 `\\include` 引用的文件。把编辑和审稿意见放入 `reviewer_comments.md`；支持本地 Markdown、文本、DOCX 与 PDF 导入。
@@ -46,10 +48,18 @@ revagent init --journal siam --tex-root manuscript --main-tex paper.tex
 revagent ingest-comments reviewer_comments.md
 revagent plan
 revagent draft
-revagent cockpit
 revagent cockpit --lang zh
 revagent validate
 ```
+
+各命令的含义：
+
+- `init`：创建本地 `.revagent/` 记录，并指定主稿入口。
+- `ingest-comments`：导入编辑和审稿意见，并将每项请求独立编号。
+- `plan`：把审稿事项关联到 LaTeX 源码，生成返修或证据义务；不会修改稿件。
+- `draft`：生成可供审阅的回复草稿和候选修改工件；不会应用修改。
+- `cockpit --lang zh`：生成中文本地总览；使用 `--lang en` 可生成英文版。
+- `validate`：在交接前检查工作区、状态和追踪关系；只有在明确需要检查 LaTeX 编译时才添加 `--compile`。
 
 所有生成记录都保存在 `.revagent/`。在修改稿件前，请先审阅回复草稿和候选修改。
 

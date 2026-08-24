@@ -4,6 +4,8 @@
 
 RevAgent turns a LaTeX manuscript and reviewer comments into auditable local artifacts: review items, source locations, revision plans, response drafts, evidence records, and author decisions. It is designed to make a revision easier to inspect—not to replace an author or domain expert.
 
+![RevAgent workflow: reviewer feedback flows through an auditable revision graph, evidence checks, local protection, and human approval.](docs/assets/revagent-workflow.png)
+
 ## 1. Install in Codex or a terminal
 
 Use a terminal in the Codex workspace, or any local terminal with Python 3.10+:
@@ -12,7 +14,7 @@ Use a terminal in the Codex workspace, or any local terminal with Python 3.10+:
 git clone https://github.com/chenyongssss/revagent.git
 cd revagent
 python -m venv .venv
-.\\.venv\\Scripts\\Activate.ps1
+& .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e .[dev]
 python -m pytest
@@ -28,11 +30,11 @@ Work from a **copy** of the manuscript, not your only original. Create one folde
 
 ```text
 my-paper-review/
-├── manuscript/
-│   ├── paper.tex
-│   ├── sections/
-│   └── bibliography.bib
-└── reviewer_comments.md
+  manuscript/
+    paper.tex
+    sections/
+    bibliography.bib
+  reviewer_comments.md
 ```
 
 Put the complete LaTeX source tree in `manuscript/`, including files referenced by `\\input` or `\\include`. Put editor/reviewer comments in `reviewer_comments.md`; local Markdown, text, DOCX, and PDF imports are supported.
@@ -46,10 +48,18 @@ revagent init --journal siam --tex-root manuscript --main-tex paper.tex
 revagent ingest-comments reviewer_comments.md
 revagent plan
 revagent draft
-revagent cockpit
-revagent cockpit --lang zh
+revagent cockpit --lang en
 revagent validate
 ```
+
+What each command does:
+
+- `init` creates the local `.revagent/` record and identifies the manuscript entry point.
+- `ingest-comments` imports and numbers editor/reviewer requests as individual review items.
+- `plan` maps those items to the LaTeX source and prepares revision or evidence obligations; it does not alter the manuscript.
+- `draft` prepares reviewable response and candidate-edit artifacts; it does not apply edits.
+- `cockpit --lang en` creates the local English overview. Use `--lang zh` for Chinese.
+- `validate` checks the workspace, state, and traceability before hand-off; add `--compile` only when you explicitly want a LaTeX compilation check.
 
 All generated records remain in `.revagent/`. Review the response draft and candidate edits before making any manuscript change.
 
