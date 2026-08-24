@@ -155,7 +155,8 @@ def build_parser() -> argparse.ArgumentParser:
     contribution_export.add_argument("--case-id", required=True)
     contribution_export.add_argument("--data-card", required=True)
     contribution_export.add_argument("--confirm", action="store_true", help="Confirm that you reviewed the data card and intend to create a local candidate package.")
-    sub.add_parser("cockpit", help="Write the local author cockpit HTML evidence overview.")
+    cockpit = sub.add_parser("cockpit", help="Write the local bilingual author cockpit HTML evidence overview.")
+    cockpit.add_argument("--lang", choices=["en", "zh"], default="en")
     response_trace = sub.add_parser("response-trace", help="Build a local request-response-manuscript-evidence traceability report.")
     response_trace.add_argument("item_id", nargs="?")
     llm_draft = sub.add_parser("llm-draft", help="Generate offline LLM reviewer-intent and response drafts.")
@@ -616,7 +617,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
     if args.command == "cockpit":
-        print(write_author_cockpit(base))
+        print(write_author_cockpit(base, args.lang))
         return 0
     if args.command == "proof-plan":
         try:

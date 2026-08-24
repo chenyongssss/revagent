@@ -2,8 +2,6 @@
 
 [English](README.md)
 
-> **v0.1.0 Alpha：仅 shadow-only，仍需校准。** RevAgent 是一个本地优先的计算数学返修工作区；它不判定证明或数值结论正确性、不提交论文、不上传项目材料，也不公开用户数据。
-
 RevAgent 将 LaTeX 稿件和审稿意见整理为可审计的本地工件：审稿事项、源码定位、返修计划、回复草稿、证据记录和作者决策。它帮助作者检查返修过程，而不是取代作者或子领域专家。
 
 ## 安装
@@ -24,6 +22,7 @@ revagent ingest-comments reviewer_comments.md
 revagent plan
 revagent draft
 revagent cockpit
+revagent cockpit --lang zh
 revagent validate
 ```
 
@@ -38,10 +37,12 @@ revagent validate
 | 审计证明类请求 | `revagent proof-plan R001`，再运行 `revagent proof-audit R001` |
 | 记录实验复现约束 | `revagent experiment-contract R002` |
 | 查看追踪关系和阻塞项 | `revagent response-trace` / `revagent readiness` |
-| 打开本地总览 | `revagent cockpit` |
+| 打开本地总览 | `revagent cockpit --lang en` / `revagent cockpit --lang zh` |
 | 检查最终交接包 | `revagent submit-pack --dry-run` |
 
 使用 `revagent --help` 查看完整命令，使用 `revagent <command> --help` 查看具体参数。CLI 仍保留运行时、worker、基准和自动化等高级接口，供受控集成或脚本调用；首次返修并不需要使用它们。
+
+如需本地浏览器界面，运行 `revagent serve`，然后打开 `http://127.0.0.1:8765/cockpit?lang=en` 或 `http://127.0.0.1:8765/cockpit?lang=zh`。
 
 ## 安全边界
 

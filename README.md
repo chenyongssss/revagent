@@ -2,8 +2,6 @@
 
 [简体中文](README.zh-CN.md)
 
-> **v0.1.0 alpha — shadow-only and calibration-required.** RevAgent is a local-first workspace for organizing computational-mathematics revisions. It does not certify proofs or numerical conclusions, submit manuscripts, upload project material, or publish user data.
-
 RevAgent turns a LaTeX manuscript and reviewer comments into auditable local artifacts: review items, source locations, revision plans, response drafts, evidence records, and author decisions. It is designed to make a revision easier to inspect—not to replace an author or domain expert.
 
 ## Install
@@ -24,6 +22,7 @@ revagent ingest-comments reviewer_comments.md
 revagent plan
 revagent draft
 revagent cockpit
+revagent cockpit --lang zh
 revagent validate
 ```
 
@@ -38,10 +37,12 @@ All generated records remain in `.revagent/`. Review the response draft and cand
 | Audit a proof request | `revagent proof-plan R001` then `revagent proof-audit R001` |
 | Record an experiment contract | `revagent experiment-contract R002` |
 | See traceability and blockers | `revagent response-trace` / `revagent readiness` |
-| Open the local overview | `revagent cockpit` |
+| Open the local overview | `revagent cockpit --lang en` / `revagent cockpit --lang zh` |
 | Check a final hand-off package | `revagent submit-pack --dry-run` |
 
 Use `revagent --help` to list commands, and `revagent <command> --help` for options. The CLI also exposes advanced runtime, worker, benchmark, and automation interfaces for controlled integrations; they are intentionally not needed for a first revision.
+
+For a local browser interface, run `revagent serve` and open `http://127.0.0.1:8765/cockpit?lang=en` or `http://127.0.0.1:8765/cockpit?lang=zh`.
 
 ## Safety boundaries
 

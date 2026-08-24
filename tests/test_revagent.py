@@ -282,6 +282,8 @@ def test_local_author_cockpit_renders_trace_and_safety_notice(tmp_path: Path, mo
     assert "R001" in rendered
     monkeypatch.chdir(tmp_path)
     assert main(["cockpit"]) == 0
+    assert main(["cockpit", "--lang", "zh"]) == 0
+    assert "RevAgent 作者工作台" in (tmp_path / ".revagent" / "author_cockpit.zh.html").read_text(encoding="utf-8")
 
 
 def test_latex_index_tracks_refs_environments_and_unresolved_refs(tmp_path: Path) -> None:
