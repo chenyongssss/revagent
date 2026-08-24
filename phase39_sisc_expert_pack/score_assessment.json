@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "expert_count": 2,
+  "means": {
+    "claim_provenance_completeness": 0.61,
+    "defect_detection_recall": 0.63,
+    "false_pass_rate": 0.055,
+    "high_risk_recall": 0.45999999999999996,
+    "plan_lane_accuracy": 0.605
+  },
+  "thresholds": {
+    "plan_lane_accuracy": 0.9,
+    "high_risk_recall": 1.0,
+    "defect_detection_recall": 0.9,
+    "false_pass_rate": 0.05,
+    "claim_provenance_completeness": 1.0
+  },
+  "failed_gates": [
+    {
+      "dimension": "plan_lane_accuracy",
+      "observed": 0.605,
+      "target": ">=0.9"
+    },
+    {
+      "dimension": "high_risk_recall",
+      "observed": 0.45999999999999996,
+      "target": ">=1.0"
+    },
+    {
+      "dimension": "defect_detection_recall",
+      "observed": 0.63,
+      "target": ">=0.9"
+    },
+    {
+      "dimension": "false_pass_rate",
+      "observed": 0.055,
+      "target": "<=0.05"
+    },
+    {
+      "dimension": "claim_provenance_completeness",
+      "observed": 0.61,
+      "target": ">=1.0"
+    }
+  ],
+  "status": "calibration_required",
+  "next_actions": [
+    "Improve LaTex response parsing and split each reviewer request into a typed lane before planning.",
+    "Add conservative proof/stability/convergence/experiment triggers and require high-risk lane recall of 1.00.",
+    "Add seeded computational-mathematics defect fixtures and require an independently reviewed coverage matrix.",
+    "Tighten pass predicates: unresolved assumptions, provenance gaps, or unassessed criteria must block pass.",
+    "Require every Planner claim and Reviewer finding to link to a stable source locator and evidence hash."
+  ],
+  "independence_note": "Distinct pseudonyms are recorded; actual expert independence remains a human-governed condition."
+}

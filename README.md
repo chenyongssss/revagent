@@ -1,11 +1,36 @@
 # revagent
 
+> **v0.1.0 alpha — shadow-only and calibration-required.** RevAgent organizes auditable revision work; it does not certify mathematical proofs or numerical conclusions, automatically submit manuscripts, upload project material, or publish user data.
+
 [简体中文](README.zh-CN.md)
 
 `revagent` is a local-first revision workspace CLI for computational mathematics
 papers. It turns a LaTeX project and reviewer comments into structured,
 reviewable artifacts: review item tracking, a manuscript index, response-letter
 drafts, proof audits, experiment plans, and conservative patch notes.
+
+Planner artifacts attached with `cycle-plan` use typed revision specification
+version 2. They record a computational-mathematics lane, traceable reviewer
+request, manuscript scope, claim and evidence inventory, rebuttal mapping, and
+lane-specific author gates. They are planning contracts, not claims that a
+proof or numerical result is correct.
+
+Actor artifacts attached with `cycle-act` also use version 2. Each Actor claim
+must reference a frozen Planner claim ID and hash-verified workspace evidence;
+the bundle records limitations and remains non-conclusive.
+
+Reviewer artifacts attached with `cycle-review` use version 2 and must assess
+every frozen claim, Actor evidence record, and acceptance criterion. High-risk
+proof, stability, convergence, and experiment lanes cannot receive `pass`.
+
+`author-console` and the dashboard surface unresolved cycle decisions and their
+bound hashes. A cycle author approval records a local decision only; it never
+applies a manuscript change or closes a review item.
+
+`cycle-author-escalate` records an author/expert escalation and blocks the
+cycle. `cycle-author-waive` is limited to a current low-risk, non-blocking
+text/rebuttal finding and remains a submission disclosure; neither command can
+waive proof, stability, convergence, experiment, provenance, or authorization gates.
 
 The tool is intentionally narrow. It does not verify mathematical correctness,
 silently rewrite manuscript sources, execute experiments, or invent numerical
@@ -75,12 +100,25 @@ revagent evolution-approve P001 --note "Reviewed source change."
 revagent evolution-apply P001 --approved
 revagent project-init
 revagent project-cycle --workers 2
+revagent cycle-open R001 --planner-id planner-001
+revagent cycle-plan CYC-001 --plan-file planner_spec.json
+revagent cycle-act CYC-001 --actor-id actor-001 --bundle-file actor_bundle.json
+revagent cycle-review CYC-001 --reviewer-id reviewer-001 --review-file reviewer_verdict.json
+revagent cycle-author-gate CYC-001 --author-id author-001 --decision approve --note "Author reviewed the evidence."
+revagent cycle-status CYC-001
+revagent author-console
+revagent cycle-author-escalate CYC-001 --author-id author-001 --note "Seek independent mathematical verification."
 revagent serve --once
 revagent project-status
 revagent worker-plan R001 --backend codex
 revagent review-sandbox-create W-R001-proof
 revagent experiment-authorize-worker W-R002-experiment --command "python scripts/run_demo.py" --timeout-seconds 600 --cpu 1 --memory-mb 1024
 revagent benchmark-run --fixture benchmarks/synthetic/basic
+revagent benchmark-shadow --case-dir C:\\path\\to\\historical_case --case-id historical-001
+revagent benchmark-shadow-score --case-id historical-001 --expert-id expert-a --scores-json '{"plan_lane_accuracy":0.9,"high_risk_recall":1.0,"defect_detection_recall":0.9,"false_pass_rate":0.0,"claim_provenance_completeness":1.0}'
+revagent benchmark-shadow-assess --scorecards-json '{"expert-a":{"plan_lane_accuracy":0.9,"high_risk_recall":1.0,"defect_detection_recall":0.9,"false_pass_rate":0.0,"claim_provenance_completeness":1.0},"expert-b":{"plan_lane_accuracy":0.9,"high_risk_recall":1.0,"defect_detection_recall":0.9,"false_pass_rate":0.0,"claim_provenance_completeness":1.0}}'
+revagent contribution-template --case-id community-001
+revagent contribution-export --case-dir C:\\path\\to\\deidentified_case --case-id community-001 --data-card C:\\path\\to\\data_card.json --confirm
 revagent project-recover
 revagent service-health
 revagent dashboard
@@ -225,6 +263,14 @@ run experiments.
 - `revagent experiment-authorize-worker ...` and `experiment-start-worker AUTHORIZATION_ID`: explicitly authorize and run one bounded sandbox experiment; results remain unconfirmed evidence.
 - `revagent review-rubric ITEM_ID --authorization ID`: consume one matching remote authorization and run an advisory semantic rubric; it never closes an item.
 - `revagent benchmark-run --fixture PATH`: run a deterministic review-project benchmark and write completion, evidence, false-ready, and authorization-policy metrics.
+- `revagent benchmark-shadow --case-dir PATH --case-id ID`: register a local historical revision case for
+  shadow-mode expert assessment. It stores only file hashes and aggregate structural counts; it never copies
+  or uploads manuscript or response text.
+- `revagent benchmark-shadow-score --case-id ID --expert-id PSEUDONYM --scores-json JSON`: record one
+  pseudonymous, immutable expert scorecard. Two distinct scorecards produce aggregate metrics; this remains
+  an assessment record, not a claim of mathematical correctness or submission readiness.
+- `revagent benchmark-shadow-assess --scorecards-json JSON`: compare two or more pseudonymous scorecards with
+  Phase 39 safety thresholds and return calibration actions. Any missed threshold fails closed.
 - `revagent project-recover|service-health`: reconcile expired runtime leases after interruption and inspect local service/runtime health.
 - `revagent agent-status`: build and print the safe-auto agent task queue without executing tasks.
 - `revagent monitor`: refresh state and print environment checks, blockers, and the next recovery command.
@@ -322,3 +368,5 @@ The package keeps `revagent.core` as a compatibility facade while exposing
 subsystem modules for new integrations: `agent`, `workspace`, `latex`, `reviews`,
 `planning`, `proofs`, `experiments`, `candidates`, `llm`, `review_analysis`,
 `lanes`, `rendering`, and `validation`.
+- `revagent contribution-template --case-id ID`: print the closed local contribution data-card template.
+- `revagent contribution-export --case-dir PATH --case-id ID --data-card PATH --confirm`: create a local metadata-only candidate package after a secret scan and explicit confirmation. It never copies source case files or uploads anything; a human must still assess consent and deidentification.

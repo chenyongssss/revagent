@@ -140,6 +140,10 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     policy = default_agent_policy_document()
     write_json(ws / "agent_policy.json", policy)
     write_text(ws / "agent_policy.md", render_agent_policy_document(policy))
+    from .privacy import DEFAULT_PRIVACY_POLICY
+    write_json(ws / "privacy_policy.json", DEFAULT_PRIVACY_POLICY)
+    write_json(ws / "privacy_scan.json", {"version": 1, "scanned_at": "", "inventory": [], "findings": [], "remote_safe": False})
+    write_text(ws / "privacy_scan.md", "# Privacy Scan\n\nNo scan run yet.\n")
     write_text(ws / "agent_report.md", "# Agent Report\n\nNo agent report generated yet.\n")
     write_text(ws / "agent_dashboard.md", "# Agent Dashboard\n\nNo agent dashboard generated yet.\n")
     write_text(ws / "agent_sessions.jsonl", "")

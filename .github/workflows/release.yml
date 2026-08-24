@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  actions: read
+  attestations: write
+  id-token: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip build
+      - run: python -m build
+      - name: Create checksums
+        run: cd dist && sha256sum * > SHA256SUMS
+      - name: Create SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: dist
+          format: spdx-json
+          output-file: dist/revagent-sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attest release build
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/revagent-*
+      - name: Attest release SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/revagent-*.whl
+          sbom-path: dist/revagent-sbom.spdx.json
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "RevAgent $GITHUB_REF_NAME — Alpha" --notes-file RELEASE_NOTES.md

@@ -746,6 +746,14 @@ def render_dashboard_html(
         for record in worker_runtime
         if isinstance(record, dict)
     ) or "<li>No explicitly started worker processes.</li>"
+    cycle_console = dashboard.get("revision_cycles", {})
+    cycle_items = "".join(
+        f"<li><strong>{html.escape(str(cycle.get('cycle_id', '')))}</strong> item={html.escape(str(cycle.get('item_id', '')))} "
+        f"status={html.escape(str(cycle.get('status', '')))} verdict={html.escape(str(cycle.get('verdict', '')))}<br>"
+        f"<code>{html.escape(str(cycle.get('next_command', '')))}</code></li>"
+        for cycle in cycle_console.get("pending", [])
+        if isinstance(cycle, dict)
+    ) or "<li>No pending revision-cycle author decisions.</li>"
 
     return f"""<!doctype html>
 <html lang="en">
@@ -777,6 +785,7 @@ def render_dashboard_html(
     <section><h2>Review Progress</h2><p>Items: {review.get('total', 0)} high risk: {review.get('high_risk', 0)} analysis: {review.get('analysis_ready', 0)}/{review.get('total', 0)}</p><div class="metric">{html_count_map(review.get('by_kind', {}))}</div></section>
     <section><h2>Lanes</h2><p>Proof</p><div class="metric">{html_count_map(lanes.get('proof', {}))}</div><p>Experiment</p><div class="metric">{html_count_map(lanes.get('experiment', {}))}</div><p>Manuscript</p><div class="metric">{html_count_map(lanes.get('manuscript', {}))}</div></section>
     <section><h2>Readiness</h2><p>Overall: {html.escape(str(readiness.get('overall_status', '')))} score: {readiness.get('score', 0)}%</p><ul>{blocker_items}</ul></section>
+    <section><h2>Revision Cycles</h2><p>{'NOT SUBMISSION READY' if cycle_console.get('pending') else 'No pending cycle decision'}</p><ul>{cycle_items}</ul></section>
     <section><h2>Revision Memory</h2><ul>{memory_items}</ul></section>
     <section><h2>Manual Decisions</h2>{task_list(decisions, 'No manual decisions.')}</section>
     <section><h2>Failed Tasks</h2>{task_list(failed, 'No failed tasks.')}</section>

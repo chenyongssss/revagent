@@ -11,7 +11,7 @@ from pathlib import Path
 from ._models import CURRENT_SCHEMA_VERSION, EXPERIMENT_CONTRACT_STATUSES, PLANNING_STATUSES, SCHEMA_FILES
 from ._utils import find_item, load_config, load_items, parse_simple_yaml, read_json, read_text, workspace_path, write_text
 from .candidates import load_candidates, llm_candidate_gate_reason, verify_candidate_anchor, verify_candidate_operation
-from .experiments import file_sha256, load_experiment_manifests, load_experiment_run_attempts
+from .experiments import experiment_protocol_issues, file_sha256, load_experiment_manifests, load_experiment_run_attempts
 from .latex import latex_index
 from .profiles import available_profiles
 from .provenance import build_revision_provenance, provenance_missing_or_stale
@@ -40,6 +40,11 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
     for name in SCHEMA_FILES:
         if not (config.workspace / name).exists():
             issues.append(f"missing workspace file: {name}")
+    # The cycle database is an append-only evidence ledger.  Its failures are
+    # hard errors, never advisory warnings, because a dry run must fail closed.
+    from .project_runtime import cycle_integrity_issues
+
+    issues.extend(cycle_integrity_issues(base))
     for name in ("review_items.json", "latex_index.json", "journal_profile.json", "candidate_edits.json", "proof_workflows.json", "experiment_manifests.json", "agent_state.json", "agent_policy.json", "agent_decisions.json", "agent_eval_report.json", "supervisor_plan.json", "supervisor_feedback.json", "supervisor_workers.json", "llm_drafts.json", "review_analyses.json", "revision_provenance.json", "revision_memory.json", "revision_readiness.json"):
         try:
             read_json(config.workspace / name, {})
@@ -349,6 +354,9 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
                     warnings.append(f"{item['id']} proof workflow has no statement snapshot")
                 if not workflow.get("proof_snapshot"):
                     warnings.append(f"{item['id']} proof workflow has no proof snapshot")
+                for field in ("statement_source_span", "proof_source_span", "assumption_definition_inventory", "dependency_graph", "revision_diff"):
+                    if field not in workflow:
+                        warnings.append(f"{item['id']} proof workflow lacks {field} audit record")
                 open_obligations = [ob for ob in workflow.get("proof_obligations", []) if ob.get("status") != "closed"]
                 if open_obligations:
                     warnings.append(f"{item['id']} proof workflow has {len(open_obligations)} open proof obligations")
@@ -362,6 +370,8 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
             if not manifest:
                 warnings.append(f"{item['id']} has no experiment manifest; run experiment-contract")
             else:
+                for protocol_issue in experiment_protocol_issues(manifest):
+                    warnings.append(f"{item['id']} experiment protocol: {protocol_issue}")
                 if manifest.get("status") not in EXPERIMENT_CONTRACT_STATUSES:
                     issues.append(f"{item['id']} has invalid experiment contract status {manifest.get('status')}")
                 if not manifest.get("command_template"):

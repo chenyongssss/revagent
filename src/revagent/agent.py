@@ -1236,6 +1236,9 @@ def build_agent_dashboard(base: Path) -> dict[str, object]:
     experiment_attempts = load_experiment_run_attempts(config)
     review_analyses = load_review_analyses(config)
     readiness = build_revision_readiness(base)
+    from .project_runtime import author_decision_console
+
+    revision_cycles = author_decision_console(base)
     runs = load_agent_runs(config)
     open_decisions = [decision for decision in decisions if decision.get("status") in {"open", "stale"}]
     return {
@@ -1276,6 +1279,7 @@ def build_agent_dashboard(base: Path) -> dict[str, object]:
             "top_blockers": readiness.get("blockers", [])[:5],
             "submit_pack_missing": readiness.get("submit_pack_missing", []),
         },
+        "revision_cycles": revision_cycles,
         "manual_decisions": open_decisions,
         "failed_tasks": report.get("failed_tasks", []),
         "stale_tasks": report.get("stale_tasks", []),
@@ -1365,6 +1369,20 @@ def render_agent_dashboard(dashboard: dict[str, object]) -> str:
         lines.append("- Top blockers: none")
     missing = readiness.get("submit_pack_missing", [])
     lines.append(f"- Submit-pack dry-run: `revagent submit-pack --dry-run` ({len(missing)} missing)")
+
+    cycles = dashboard.get("revision_cycles", {})
+    lines.extend(["", "## Revision Cycles", ""])
+    if cycles.get("pending"):
+        lines.append("- NOT SUBMISSION READY: pending cycle decisions or evidence work remain.")
+        for cycle in cycles["pending"]:
+            lines.append(f"- `{cycle.get('cycle_id', '')}` item={cycle.get('item_id', '')} status={cycle.get('status', '')} verdict={cycle.get('verdict', '')}")
+            lines.append(f"  - Next: `{cycle.get('next_command', '')}`")
+            if cycle.get("invalidation_reason"):
+                lines.append(f"  - Stale: {cycle['invalidation_reason']}")
+    elif cycles.get("cycles"):
+        lines.append("- All recorded revision cycles have completed their author decision; existing readiness gates still apply.")
+    else:
+        lines.append(f"- No revision cycles. {cycles.get('reason', '')}")
 
     decisions = dashboard.get("manual_decisions", [])
     lines.extend(["", "## Manual Decisions", ""])

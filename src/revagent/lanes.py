@@ -22,6 +22,7 @@ from .proofs import (
     proof_audit_for_item,
     proof_approve,
     proof_obligation,
+    proof_record_revision_diff,
     proof_plan_for_item,
 )
 
@@ -38,6 +39,7 @@ __all__ = [
     "proof_audit_for_item",
     "proof_approve",
     "proof_obligation",
+    "proof_record_revision_diff",
     "proof_plan_for_item",
     "reasoning_for_item",
     "record_experiment_result",

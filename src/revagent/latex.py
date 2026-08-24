@@ -14,7 +14,11 @@ def normalize_tex_child(name: str) -> str:
     child = name.strip().strip("{}").strip()
     if not child.endswith(".tex"):
         child += ".tex"
-    return child.replace("/", "\\")
+    # TeX accepts either separator, but ``pathlib`` only treats ``/`` as a
+    # directory separator on every supported host. Normalizing both forms
+    # prevents Windows-authored ``\\input{dir\\file}`` from becoming an
+    # unreachable literal filename on Linux/macOS CI.
+    return child.replace("\\", "/")
 
 def discover_tex_graph(tex_root: Path, main_tex: str | None = None) -> dict[str, object]:
     all_files = sorted(path for path in tex_root.rglob("*.tex") if WORKSPACE not in path.parts)
@@ -96,7 +100,44 @@ def context_hash_for_lines(lines: list[str], anchor_line: int, radius: int = 2) 
     end = min(len(lines), anchor_line + radius)
     return hashlib.sha256("\n".join(lines[start:end]).encode("utf-8")).hexdigest()[:16]
 
-def latex_index(tex_root: Path, main_tex: str | None = None) -> dict[str, object]:
+
+DEFAULT_THEOREM_MACROS = {
+    "theorem": "theorem", "lemma": "lemma", "proposition": "proposition", "corollary": "corollary",
+    "definition": "definition", "remark": "remark", "assumption": "assumption",
+}
+
+
+def normalize_theorem_macro_registry(registry: dict[str, str] | None = None) -> dict[str, str]:
+    """Return the closed set of theorem-like environments configured for parsing.
+
+    Callers may provide a local ``{environment: kind}`` mapping; only known
+    theorem-like kinds are accepted so a macro cannot silently widen parsing.
+    """
+    normalized = dict(DEFAULT_THEOREM_MACROS)
+    if registry is None:
+        return normalized
+    allowed = set(DEFAULT_THEOREM_MACROS.values())
+    for environment, kind in registry.items():
+        if not isinstance(environment, str) or not re.fullmatch(r"[A-Za-z@]+", environment) or kind not in allowed:
+            raise ValueError("theorem macro registry must map LaTeX environment names to known theorem-like kinds")
+        normalized[environment] = kind
+    return normalized
+
+
+def source_span(rel: str, text: str, start: int, end: int) -> dict[str, object]:
+    lines = text.splitlines()
+    line = line_for_offset(text, start)
+    return {
+        "file": rel,
+        "start_line": line,
+        "end_line": line_for_offset(text, end),
+        "start_offset": start,
+        "end_offset": end,
+        "context_hash": context_hash_for_lines(lines, line),
+    }
+
+
+def latex_index(tex_root: Path, main_tex: str | None = None, macro_registry: dict[str, str] | None = None) -> dict[str, object]:
     graph = discover_tex_graph(tex_root, main_tex)
     sections = []
     labels = []
@@ -107,25 +148,37 @@ def latex_index(tex_root: Path, main_tex: str | None = None) -> dict[str, object
     dependency_map = []
     custom_environments: list[dict[str, object]] = []
     texts: dict[str, str] = {}
-    default_theorem_like = {"theorem", "lemma", "proposition", "corollary", "definition", "remark", "assumption"}
+    registered_theorem_macros = normalize_theorem_macro_registry(macro_registry)
+    default_theorem_like = set(registered_theorem_macros)
+    symbols: list[dict[str, object]] = []
 
     for path in tex_files(tex_root, main_tex):
         rel = str(path.relative_to(tex_root))
         text = cleaned_latex(read_text(path))
         texts[rel] = text
         for match in re.finditer(r"\\newtheorem\{([^}]+)\}(?:\[[^]]+\])?\{([^}]+)\}", text):
+            environment = match.group(1)
             custom_environments.append(
                 {
                     "file": rel,
                     "line": line_for_offset(text, match.start()),
-                    "environment": match.group(1),
+                    "environment": environment,
                     "display_name": match.group(2),
+                    "source_span": source_span(rel, text, match.start(), match.end()),
                 }
             )
+            registered_theorem_macros.setdefault(environment, "theorem")
+        for pattern, name_group, kind in (
+            (r"\\(?:newcommand|renewcommand)\*?\s*\{\\([A-Za-z@]+)\}", 1, "command"),
+            (r"\\def\\([A-Za-z@]+)", 1, "definition"),
+            (r"\\DeclareMathOperator\*?\s*\{\\([A-Za-z@]+)\}", 1, "operator"),
+        ):
+            for match in re.finditer(pattern, text):
+                symbols.append({"name": f"\\{match.group(name_group)}", "kind": kind, "source_span": source_span(rel, text, match.start(), match.end())})
         for match in re.finditer(r"\\(section|subsection|subsubsection)\*?\{([^{}]+)\}", text):
             sections.append({"file": rel, "line": line_for_offset(text, match.start()), "level": match.group(1), "title": match.group(2).strip()})
 
-    env_names = sorted(default_theorem_like | {entry["environment"] for entry in custom_environments} | {"proof", "algorithm", "figure", "table"})
+    env_names = sorted(set(registered_theorem_macros) | {"proof", "algorithm", "figure", "table"})
     env_pattern = re.compile(
         rf"\\begin\{{({'|'.join(re.escape(name) for name in env_names)})\}}(\[[^\]]*\])?(.*?)\\end\{{\1\}}",
         re.S,
@@ -160,12 +213,15 @@ def latex_index(tex_root: Path, main_tex: str | None = None) -> dict[str, object
                 "section_level": section["level"] if section else "",
                 "section_line": section["line"] if section else 0,
                 "excerpt": first_sentence(re.sub(r"\\[A-Za-z]+\*?(?:\[[^\]]*\])?", " ", body)),
+                "content_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                "source_span": source_span(rel, text, match.start(), match.end()),
+                "theorem_kind": registered_theorem_macros.get(env_type, ""),
             }
             caption = re.search(r"\\caption(?:\[[^\]]*\])?\{([^{}]+)\}", body, re.S)
             if caption:
                 env["caption"] = " ".join(caption.group(1).split())
             envs.append(env)
-            if env_type in default_theorem_like or env_type == "proof":
+            if env_type in registered_theorem_macros or env_type == "proof":
                 nearest_claim = previous_claim.get(rel)
                 dependency_map.append(
                     {
@@ -178,7 +234,7 @@ def latex_index(tex_root: Path, main_tex: str | None = None) -> dict[str, object
                         "nearest_claim": nearest_claim if env_type == "proof" else None,
                     }
                 )
-            if env_type in default_theorem_like:
+            if env_type in registered_theorem_macros:
                 previous_claim[rel] = {"environment": env_type, "line": line, "labels": env["labels"], "excerpt": env["excerpt"]}
     label_names = {entry["label"] for entry in labels}
     unresolved_refs = [entry for entry in refs if entry["ref"] not in label_names]
@@ -189,6 +245,8 @@ def latex_index(tex_root: Path, main_tex: str | None = None) -> dict[str, object
         "reachable_files": graph["reachable_files"],
         "warnings": graph["warnings"],
         "custom_environments": custom_environments,
+        "theorem_macro_registry": registered_theorem_macros,
+        "symbols": symbols,
         "sections": sections,
         "labels": labels,
         "refs": refs,

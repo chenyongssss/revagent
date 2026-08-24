@@ -91,10 +91,18 @@ from revagent.workspace import CURRENT_SCHEMA_VERSION, migrate_workspace, render
 from revagent.latex import discover_tex_graph
 from revagent.external_agent import render_external_agent_run_detail, render_external_agent_runs, render_external_agent_supervision, supervisor_observations_snapshot
 from revagent.evolution import append_runtime_event, apply_evolution, approve_evolution, create_worker_snapshot, evaluate_worker, plan_evolution
-from revagent.project_runtime import authorize_remote, evaluate_review_item, initialize_project_runtime, project_status, run_project_cycle, set_project_paused
+from revagent.project_runtime import attach_cycle_actor_bundle, attach_cycle_plan, attach_cycle_review, author_decision_console, authorize_remote, create_cycle_reviewer_session, cycle_integrity_issues, evaluate_review_item, initialize_project_runtime, open_revision_cycle, project_status, record_cycle_author_gate, run_project_cycle, set_project_paused
 from revagent.review_workers import authorize_experiment, create_review_snapshot, plan_review_workers, run_authorized_experiment
 from revagent.review_rubric import run_review_rubric
-from revagent.benchmark import run_benchmark
+from revagent.revision_spec import validate_revision_spec
+from revagent.reviews import parse_review_requests
+from revagent.experiments import experiment_protocol_issues, load_experiment_manifests
+from revagent.proofs import proof_record_revision_diff
+from revagent.response_trace import build_response_trace, write_response_trace
+from revagent.privacy import privacy_scan, remote_authorization_issues
+from revagent.contributions import contribution_data_card_template, create_contribution_package
+from revagent.cockpit import write_author_cockpit
+from revagent.benchmark import assess_shadow_scores, generate_synthetic_catalog, record_shadow_expert_scores, register_shadow_benchmark, run_benchmark
 from revagent.project_runtime import recover_project_runtime, service_health
 
 
@@ -189,6 +197,93 @@ def test_revision_workspace_generates_core_artifacts(tmp_path: Path) -> None:
     assert (artifact_dir / "MANIFEST.md").exists()
 
 
+def test_comment_parser_keeps_reviewer_context_and_latex_item_locations(tmp_path: Path) -> None:
+    markdown = "# Reviewer 2\n- First independent request.\n- Second independent request.\n\n# Editor\n1. Editorial request.\n"
+    parsed = parse_review_requests(markdown)
+    assert [entry["reviewer"] for entry in parsed] == ["Reviewer 2", "Reviewer 2", "Editor"]
+    assert [entry["line_start"] for entry in parsed] == ["2", "3", "6"]
+    latex = r"\begin{description}\n\item[Reviewer 3] Please state the assumption.\n\item Please add a seed.\n\end{description}"
+    latex_parsed = parse_review_requests(latex.replace(r"\n", "\n"))
+    assert [entry["comment"] for entry in latex_parsed] == ["Please state the assumption.", "Please add a seed."]
+    assert all(entry["reviewer"] == "Reviewer 3" for entry in latex_parsed)
+
+    write_demo_project(tmp_path)
+    (tmp_path / "comments.md").write_text(markdown, encoding="utf-8")
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    assert ingest_comments(tmp_path, "comments.md") == 3
+    items = json.loads((tmp_path / ".revagent" / "review_items.json").read_text(encoding="utf-8"))
+    assert items[1]["source_locator"] == "comments.md:3-3"
+
+
+def test_response_trace_links_request_response_evidence_and_unassessed_pdf(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+    trace = write_response_trace(tmp_path)
+    proof = next(record for record in trace["records"] if record["item_id"] == "R001")
+    assert proof["review_request"]["source_locator"] == "comments.md:2-2"
+    assert proof["response_assertion"]["status"] == "present"
+    assert proof["evidence"]["status"] == "not_assessed"
+    assert proof["final_pdf"]["status"] == "not_assessed"
+    assert build_response_trace(tmp_path)["source_fingerprint"] == trace["source_fingerprint"]
+    submit_pack = build_submit_pack_dry_run(tmp_path)
+    assert "response trace completeness" in submit_pack["missing"]
+    assert any("R001 final PDF trace" in gap for gap in submit_pack["response_trace_missing"])
+    monkeypatch.chdir(tmp_path)
+    assert main(["response-trace", "R001"]) == 0
+
+
+def test_privacy_scan_blocks_remote_authorization_when_credentials_are_detected(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    (tmp_path / ".env").write_text("API_KEY=sk_12345678901234567890\n", encoding="utf-8")
+    report = privacy_scan(tmp_path)
+    assert report["remote_safe"] is False
+    assert report["findings"][0]["path"] == ".env"
+    assert remote_authorization_issues(tmp_path, "unlisted", ["review_comment"])
+    monkeypatch.chdir(tmp_path)
+    assert main(["privacy-scan"]) == 0
+
+
+def test_contribution_package_is_local_metadata_only_and_fail_closed(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "main.tex").write_text("\\documentclass{article}\\begin{document}Anonymous\\end{document}", encoding="utf-8")
+    card = contribution_data_card_template("community-001")
+    card.update({"permission_status": "written", "deidentification_status": "completed", "retention_rule": "review then delete", "allowed_purposes": ["benchmark calibration"], "subfield": "numerical PDE"})
+    card_path = case / "data_card.json"
+    card_path.write_text(json.dumps(card), encoding="utf-8")
+    with pytest.raises(ValueError, match="explicit contributor confirmation"):
+        create_contribution_package(tmp_path, case, "community-001", card_path)
+    package = create_contribution_package(tmp_path, case, "community-001", card_path, confirmed=True)
+    manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["source_case_content_included"] is False
+    assert manifest["deidentification_assessment"] == "not assessed by RevAgent"
+    assert not (package / "main.tex").exists()
+    monkeypatch.chdir(tmp_path)
+    assert main(["contribution-template", "--case-id", "community-002"]) == 0
+    assert main(["contribution-export", "--case-dir", str(case), "--case-id", "community-002", "--data-card", str(card_path), "--confirm"]) == 1
+
+
+def test_local_author_cockpit_renders_trace_and_safety_notice(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    create_draft(tmp_path)
+    cockpit = write_author_cockpit(tmp_path)
+    rendered = cockpit.read_text(encoding="utf-8")
+    assert "RevAgent Author Cockpit" in rendered
+    assert "does not certify proofs" in rendered
+    assert "R001" in rendered
+    monkeypatch.chdir(tmp_path)
+    assert main(["cockpit"]) == 0
+
+
 def test_latex_index_tracks_refs_environments_and_unresolved_refs(tmp_path: Path) -> None:
     write_demo_project(tmp_path)
     index = latex_index(tmp_path)
@@ -198,6 +293,22 @@ def test_latex_index_tracks_refs_environments_and_unresolved_refs(tmp_path: Path
     assert any(env["environment"] == "figure" and env["caption"] == "Demo figure." for env in index["environments"])
     assert any(ref["ref"] == "lem:stable" for ref in index["unresolved_refs"])
     assert index["bibliography"][0]["target"] == "refs"
+
+
+def test_latex_index_emits_configured_macro_registry_spans_and_symbols(tmp_path: Path) -> None:
+    (tmp_path / "paper.tex").write_text(
+        "\\newcommand{\\Energy}{E}\n"
+        "\\DeclareMathOperator{\\argmin}{argmin}\n"
+        "\\begin{axiom}\\label{ax:one} A local assumption.\\end{axiom}\n"
+        "\\begin{proof} By \\ref{ax:one}.\\end{proof}\n",
+        encoding="utf-8",
+    )
+    index = latex_index(tmp_path, "paper.tex", macro_registry={"axiom": "assumption"})
+    axiom = next(env for env in index["environments"] if env["environment"] == "axiom")
+    assert axiom["theorem_kind"] == "assumption"
+    assert axiom["source_span"]["start_line"] == 3
+    assert axiom["source_span"]["context_hash"]
+    assert {symbol["name"] for symbol in index["symbols"]} == {"\\Energy", "\\argmin"}
 
 
 def test_validate_status_clean_and_cli(tmp_path: Path, monkeypatch) -> None:
@@ -361,6 +472,17 @@ def test_candidate_workflow_dry_run_approve_apply_and_reject(tmp_path: Path, mon
     monkeypatch.chdir(tmp_path)
     assert main(["inspect", manuscript_candidate["id"]]) == 0
     assert main(["apply", "--dry-run"]) == 0
+
+
+def test_experiment_protocol_requires_fair_repeated_auditable_design(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    create_plan(tmp_path)
+    manifest = experiment_contract(tmp_path, "R002")
+    assert "comparators are not declared" in experiment_protocol_issues(manifest)
+    manifest.update({"comparators": ["method-a", "baseline-b"], "fairness_rules": ["same grid and stopping tolerance"], "discretization": {"grid": "h=1/64", "time_step": "dt=1e-3", "error_metric": "L2", "stopping_criterion": "residual < 1e-8"}, "repetitions": 3, "uncertainty_method": "mean and standard deviation", "hardware": "local CPU"})
+    assert experiment_protocol_issues(manifest) == []
 
 
 def test_candidate_apply_blocks_when_anchor_changes(tmp_path: Path) -> None:
@@ -1091,8 +1213,8 @@ def test_experiment_run_preview_record_and_failure_validation(tmp_path: Path, mo
     attempts = load_experiment_run_attempts(config)
     assert attempts[-1]["attempt_id"] == attempt["attempt_id"]
     updated = json.loads((config.workspace / "experiment_manifests.json").read_text(encoding="utf-8"))["R002"]
-    assert updated["artifacts"][0]["path"] == "results/runner_metrics.csv"
-    assert len(updated["artifacts"][0]["sha256"]) == 64
+    assert updated["last_attempt_status"] == "executed_not_interpreted"
+    assert updated["artifacts"] == []
     assert main(["experiment-run", "R002", "--record"]) == 0
 
     manifests = json.loads((config.workspace / "experiment_manifests.json").read_text(encoding="utf-8"))
@@ -1116,6 +1238,10 @@ def test_proof_workflow_snapshots_obligations_approval_gate_and_cli(tmp_path: Pa
     workflow = proof_plan_for_item(tmp_path, "R001")
     assert workflow["statement_snapshot"]
     assert workflow["proof_snapshot"]
+    assert workflow["statement_source_span"]["file"] == "paper.tex"
+    assert workflow["proof_source_span"]["context_hash"]
+    assert workflow["dependency_graph"]
+    assert workflow["revision_diff"]["status"] == "not_recorded"
     assert workflow["proof_obligations"][0]["status"] == "open"
     assert (tmp_path / ".revagent" / "proof_workflows.json").exists()
     assert "Proof Workflow R001" in (tmp_path / ".revagent" / "proof_workflows.md").read_text(encoding="utf-8")
@@ -1126,6 +1252,9 @@ def test_proof_workflow_snapshots_obligations_approval_gate_and_cli(tmp_path: Pa
     config = load_config(tmp_path)
     proof_candidate = next(candidate for candidate in load_candidates(config) if candidate["kind"] == "proof")
     (tmp_path / "proof_text.tex").write_text("Author-verified proof clarification.", encoding="utf-8")
+    diff = proof_record_revision_diff(tmp_path, "R001", "proof_text.tex")
+    assert diff["status"] == "recorded"
+    assert len(diff["after_content_sha256"]) == 64
     edit_candidate(tmp_path, proof_candidate["id"], "proof_text.tex")
     try:
         approve_candidate(tmp_path, proof_candidate["id"], allow_high_risk=True)
@@ -1147,6 +1276,7 @@ def test_proof_workflow_snapshots_obligations_approval_gate_and_cli(tmp_path: Pa
     monkeypatch.chdir(tmp_path)
     assert main(["proof-plan", "R001"]) == 0
     assert main(["proof-obligation", "R001", "--add", "Check theorem statement did not change."]) == 0
+    assert main(["proof-diff", "R001", "--after-file", "proof_text.tex"]) == 0
     assert main(["proof-approve", "R001", "--note", "Author re-confirmed proof workflow."]) == 0
 
 
@@ -2138,6 +2268,101 @@ def test_persistent_review_project_runtime_advances_reversible_tasks(tmp_path: P
     assert project_status(tmp_path)["paused"] is True
 
 
+def test_revision_cycle_enforces_independent_roles_and_author_gate(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    initialize_project_runtime(tmp_path)
+    opened = open_revision_cycle(tmp_path, "R001", "planner-1")
+    cycle = opened["cycle"]
+    cycle_id = str(cycle["cycle_id"])
+    fingerprint = str(cycle["source_fingerprint"])
+
+    def artifact(role: str, actor_id: str, **extra: object) -> Path:
+        path = tmp_path / f"{role}.json"
+        path.write_text(json.dumps({"version": 1, "cycle_id": cycle_id, "item_id": "R001", "role": role, "actor_id": actor_id, "input_fingerprint": fingerprint, "created_at": "2026-01-01T00:00:00+00:00"} | extra), encoding="utf-8")
+        return path
+
+    plan = artifact("planner", "planner-1", version=2, summary="Clarify a text response.", lane="text", risk_level="low", reviewer_request={"verbatim_locator": "comments.md#R001", "quoted_request": "Clarify the response.", "normalized_requests": [{"request_id": "REQ-1", "text": "Clarify the response."}]}, manuscript_scope=[{"locator": "paper.tex:5", "why": "contains the response target"}], taxonomy=[{"family": "text", "topic": "exposition"}], claim_inventory=[{"claim_id": "CLM-1", "proposition": "The response identifies the requested clarification.", "status": "unverified"}], evidence_requirements=[{"evidence_id": "E-1"}], acceptance_criteria=[{"criterion_id": "AC-1", "observable": "An author-checkable response reference is recorded.", "required_evidence_ids": ["E-1"]}], dependencies=[], blockers=[], manual_gates=[{"gate": "author_response_review", "required_action": "Author verifies the response.", "blocking": True}], uncertainties=[], out_of_scope=[], rebuttal_plan={"response_posture": "clarify", "response_commitments": [{"request_id": "REQ-1", "manuscript_locator": "paper.tex:5"}], "non_claims": [], "manuscript_response_consistency_checks": []})
+    invalid_plan = json.loads(plan.read_text(encoding="utf-8"))
+    invalid_plan["manual_gates"] = []
+    with pytest.raises(ValueError, match="manual_gates"):
+        validate_revision_spec(invalid_plan)
+    planned = attach_cycle_plan(tmp_path, cycle_id, plan)
+    plan_sha = str(planned["cycle"]["plan_sha256"])
+    evidence_path = tmp_path / "proof_evidence.txt"
+    evidence_path.write_text("Response-reference candidate; author verification remains required.\n", encoding="utf-8")
+    bad_actor = artifact("actor", "actor-1", version=2, plan_sha256=plan_sha, collected_at="2026-01-01T00:00:00+00:00", evidence=[{"evidence_id": "E-1", "kind": "source_snapshot", "path": "proof_evidence.txt", "sha256": "0" * 64, "status": "collected"}], claims=[{"claim_id": "CLM-1", "status": "unverified", "evidence_ids": ["E-1"]}], unresolved=[], execution=[], limitations=[], prohibited_conclusions=[])
+    with pytest.raises(ValueError, match="hash"):
+        attach_cycle_actor_bundle(tmp_path, cycle_id, "actor-1", bad_actor)
+    actor = artifact("actor", "actor-1", version=2, plan_sha256=plan_sha, collected_at="2026-01-01T00:00:00+00:00", evidence=[{"evidence_id": "E-1", "kind": "source_snapshot", "path": "proof_evidence.txt", "sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest(), "status": "collected"}], claims=[{"claim_id": "CLM-1", "status": "unverified", "evidence_ids": ["E-1"]}], unresolved=[], execution=[], limitations=["Author must verify the proof."], prohibited_conclusions=["No mathematical correctness conclusion."])
+    acted = attach_cycle_actor_bundle(tmp_path, cycle_id, "actor-1", actor)
+    actor_sha = str(acted["cycle"]["actor_sha256"])
+    session = create_cycle_reviewer_session(tmp_path, cycle_id, "reviewer-1")
+    session_fields = {"review_session_id": session["session_id"], "review_session_sha256": session["sha256"]}
+    same_actor_review = artifact("reviewer", "actor-1", version=2, plan_sha256=plan_sha, actor_sha256=actor_sha, claim_assessments=[{"claim_id": "CLM-1", "status": "evidence_assessed"}], evidence_assessments=[{"evidence_id": "E-1", "status": "verified_reference"}], criterion_assessments=[{"criterion_id": "AC-1", "status": "satisfied"}], findings=[], verdict="pass", required_corrections=[], uncertainty=[])
+    with pytest.raises(ValueError, match="independent"):
+        attach_cycle_review(tmp_path, cycle_id, "actor-1", same_actor_review)
+    uncertain_review = artifact("reviewer", "reviewer-1", version=2, plan_sha256=plan_sha, actor_sha256=actor_sha, **session_fields, claim_assessments=[{"claim_id": "CLM-1", "status": "evidence_assessed"}], evidence_assessments=[{"evidence_id": "E-1", "status": "verified_reference"}], criterion_assessments=[{"criterion_id": "AC-1", "status": "satisfied"}], findings=[], verdict="pass", required_corrections=[], uncertainty=["author must decide tone"])
+    with pytest.raises(ValueError, match="unresolved"):
+        attach_cycle_review(tmp_path, cycle_id, "reviewer-1", uncertain_review)
+    review = artifact("reviewer", "reviewer-1", version=2, plan_sha256=plan_sha, actor_sha256=actor_sha, **session_fields, claim_assessments=[{"claim_id": "CLM-1", "status": "evidence_assessed"}], evidence_assessments=[{"evidence_id": "E-1", "status": "verified_reference"}], criterion_assessments=[{"criterion_id": "AC-1", "status": "satisfied"}], findings=[], verdict="pass", required_corrections=[], uncertainty=[])
+    reviewed = attach_cycle_review(tmp_path, cycle_id, "reviewer-1", review)
+    assert reviewed["cycle"]["status"] == "awaiting_author_gate"
+    console = author_decision_console(tmp_path)
+    assert console["submission_ready"] is False
+    assert console["pending"][0]["cycle_id"] == cycle_id
+    assert "cycle-author-gate" in console["pending"][0]["next_command"]
+    readiness = write_revision_readiness(tmp_path)
+    item_readiness = next(item for item in readiness["items"] if item["item_id"] == "R001")
+    assert f"revision cycle {cycle_id} author decision" in item_readiness["manual_actions"]
+    assert "revision cycles resolved" in build_submit_pack_dry_run(tmp_path)["missing"]
+    with pytest.raises(ValueError, match="must be distinct"):
+        record_cycle_author_gate(tmp_path, cycle_id, "planner-1", "approve", "Self approval is forbidden.")
+    approved = record_cycle_author_gate(tmp_path, cycle_id, "author-1", "approve", "Author checked the proposed response.")
+    assert approved["cycle"]["status"] == "author_approved"
+    assert author_decision_console(tmp_path)["pending"] == []
+    refreshed = write_revision_readiness(tmp_path)
+    refreshed_item = next(item for item in refreshed["items"] if item["item_id"] == "R001")
+    assert not any("revision cycle" in action for action in refreshed_item["manual_actions"])
+    assert project_status(tmp_path)["gates"][0]["kind"] == "revision_cycle"
+    items = json.loads((load_config(tmp_path).workspace / "review_items.json").read_text(encoding="utf-8"))
+    assert not any(item["status"] == "closed" for item in items)
+
+
+def test_revision_cycle_marks_stale_inputs_blocked_and_allows_replacement(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    initialize_project_runtime(tmp_path)
+    opened = open_revision_cycle(tmp_path, "R002", "planner-2")
+    cycle = opened["cycle"]
+    cycle_id = str(cycle["cycle_id"])
+    plan = tmp_path / "stale-plan.json"
+    plan.write_text(json.dumps({"version": 2, "cycle_id": cycle_id, "item_id": "R002", "role": "planner", "actor_id": "planner-2", "input_fingerprint": cycle["source_fingerprint"], "created_at": "2026-01-01T00:00:00+00:00", "summary": "Plan", "lane": "text", "risk_level": "low", "reviewer_request": {"verbatim_locator": "comments.md#R002", "quoted_request": "Report details.", "normalized_requests": [{"request_id": "REQ-1", "text": "Report details."}]}, "manuscript_scope": [{"locator": "paper.tex:1", "why": "response target"}], "taxonomy": [{"family": "text", "topic": "reproducibility_documentation"}], "claim_inventory": [{"claim_id": "CLM-1", "proposition": "The revision will identify reproducibility documentation.", "status": "unverified"}], "evidence_requirements": [{"evidence_id": "E-1"}], "acceptance_criteria": [{"criterion_id": "AC-1", "observable": "Response cites an artifact.", "required_evidence_ids": ["E-1"]}], "dependencies": [], "blockers": [], "manual_gates": [{"gate": "author_response_review", "required_action": "Author checks the response.", "blocking": True}], "uncertainties": [], "out_of_scope": [], "rebuttal_plan": {"response_posture": "clarify", "response_commitments": [{"request_id": "REQ-1", "manuscript_locator": "paper.tex:1"}], "non_claims": [], "manuscript_response_consistency_checks": []}}), encoding="utf-8")
+    (tmp_path / "paper.tex").write_text((tmp_path / "paper.tex").read_text(encoding="utf-8") + "\n% revised input\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="marked blocked"):
+        attach_cycle_plan(tmp_path, cycle_id, plan)
+    assert project_status(tmp_path)["cycles"][0]["status"] == "blocked"
+    assert open_revision_cycle(tmp_path, "R002", "planner-3")["cycle"]["cycle_id"] == "CYC-002"
+
+
+def test_revision_cycle_integrity_detects_artifact_tampering(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    ingest_comments(tmp_path, "comments.md")
+    initialize_project_runtime(tmp_path)
+    cycle = open_revision_cycle(tmp_path, "R003", "planner-1")["cycle"]
+    cycle_id, fingerprint = str(cycle["cycle_id"]), str(cycle["source_fingerprint"])
+    plan = tmp_path / "integrity-plan.json"
+    plan.write_text(json.dumps({"version": 2, "cycle_id": cycle_id, "item_id": "R003", "role": "planner", "actor_id": "planner-1", "input_fingerprint": fingerprint, "created_at": "2026-01-01T00:00:00+00:00", "summary": "Plan", "lane": "text", "risk_level": "low", "reviewer_request": {"verbatim_locator": "comments.md#R003", "quoted_request": "Clarify.", "normalized_requests": [{"request_id": "REQ-1", "text": "Clarify."}]}, "manuscript_scope": [{"locator": "paper.tex:1", "why": "target"}], "taxonomy": [{"family": "text", "topic": "exposition"}], "claim_inventory": [{"claim_id": "CLM-1", "proposition": "A clarification is proposed.", "status": "unverified"}], "evidence_requirements": [{"evidence_id": "E-1"}], "acceptance_criteria": [{"criterion_id": "AC-1", "observable": "A locator is recorded.", "required_evidence_ids": ["E-1"]}], "dependencies": [], "blockers": [], "manual_gates": [{"gate": "author_response_review", "required_action": "Author checks the response.", "blocking": True}], "uncertainties": [], "out_of_scope": [], "rebuttal_plan": {"response_posture": "clarify", "response_commitments": [{"request_id": "REQ-1", "manuscript_locator": "paper.tex:1"}], "non_claims": [], "manuscript_response_consistency_checks": []}}), encoding="utf-8")
+    attach_cycle_plan(tmp_path, cycle_id, plan)
+    stored = tmp_path / ".revagent" / "revision_cycles" / cycle_id / "01-planner.json"
+    stored.write_text(stored.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    assert any("artifact hash drift" in issue for issue in cycle_integrity_issues(tmp_path))
+    assert not validate_workspace(tmp_path)["ok"]
+
+
 def test_review_workers_snapshots_experiments_and_one_use_rubric(tmp_path: Path) -> None:
     write_demo_project(tmp_path)
     init_workspace(tmp_path, "siam", ".", "paper.tex")
@@ -2182,6 +2407,47 @@ def test_runtime_recovery_health_and_synthetic_benchmark(tmp_path: Path) -> None
     report = run_benchmark(tmp_path, fixture)
     assert report["metrics"]["task_completion_rate"] == 1.0
     assert (tmp_path / ".revagent" / "benchmark_report.json").exists()
+
+
+def test_synthetic_benchmark_catalog_is_stratified_and_text_free(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    catalog = generate_synthetic_catalog(tmp_path)
+    assert catalog["fixture_count"] == 200
+    assert set(catalog["domains"]) >= {"pde_fem", "inverse_problems"}
+    assert set(catalog["defect_classes"]) >= {"missing_seed", "prompt_injection"}
+    assert all(entry["fixture_text"] == "not_stored" for entry in catalog["fixtures"])
+    monkeypatch.chdir(tmp_path)
+    assert main(["benchmark-synthetic-catalog"]) == 0
+
+
+def test_shadow_benchmark_registers_hashes_without_copying_source(tmp_path: Path) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    case = tmp_path / "historical_case"
+    case.mkdir()
+    (case / "main.tex").write_text("original\n", encoding="utf-8")
+    (case / "article.tex").write_text("revised\nline\n", encoding="utf-8")
+    (case / "resp.tex").write_text("Reviewer comment\nResponse\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="data_card"):
+        register_shadow_benchmark(tmp_path, case, "local-shadow-1")
+    (case / "data_card.json").write_text(json.dumps({"permission_status": "written", "deidentification_status": "completed", "retention_rule": "local project only", "subfield": "numerical PDE"}), encoding="utf-8")
+    record = register_shadow_benchmark(tmp_path, case, "local-shadow-1")
+    assert record["evaluation"]["status"] == "awaiting_expert_review"
+    config = load_config(tmp_path)
+    assert "revised\\nline" not in (config.workspace / "shadow_benchmarks.json").read_text(encoding="utf-8")
+    assert (config.workspace / "shadow_benchmark_expert_template.md").exists()
+    scores = {"plan_lane_accuracy": 0.9, "high_risk_recall": 1.0, "defect_detection_recall": 0.8, "false_pass_rate": 0.1, "claim_provenance_completeness": 0.9}
+    first = record_shadow_expert_scores(tmp_path, "local-shadow-1", "expert-a", scores)
+    assert first["evaluation"]["status"] == "awaiting_second_independent_expert"
+    with pytest.raises(ValueError, match="only one"):
+        record_shadow_expert_scores(tmp_path, "local-shadow-1", "expert-a", scores)
+    second = record_shadow_expert_scores(tmp_path, "local-shadow-1", "expert-b", scores)
+    assert second["evaluation"]["status"] == "expert_review_recorded"
+    assert second["evaluation"]["aggregate_scores"]["high_risk_recall"] == 1.0
+    assessment = assess_shadow_scores({"expert-a": scores, "expert-b": scores})
+    assert assessment["status"] == "calibration_required"
+    assert {entry["dimension"] for entry in assessment["failed_gates"]} == {"defect_detection_recall", "false_pass_rate", "claim_provenance_completeness"}
 
 
 def test_agent_decision_queue_tracks_resolve_and_dismiss(tmp_path: Path, monkeypatch) -> None:

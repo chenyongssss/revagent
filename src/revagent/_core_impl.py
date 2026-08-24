@@ -19,6 +19,10 @@ from .planning import *  # noqa: F403
 from .candidates import *  # noqa: F403
 from .llm import *  # noqa: F403
 from .rendering import *  # noqa: F403
+from .response_trace import *  # noqa: F403
+from .privacy import *  # noqa: F403
+from .contributions import *  # noqa: F403
+from .cockpit import *  # noqa: F403
 from .provenance import *  # noqa: F403
 from .memory import *  # noqa: F403
 from .readiness import *  # noqa: F403

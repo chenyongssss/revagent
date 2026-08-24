@@ -3,32 +3,102 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import zipfile
+from xml.etree import ElementTree
 from pathlib import Path
 from typing import Iterable
 
 from ._utils import first_sentence, load_config, load_items, now_iso, read_json, read_text, write_items, write_json, write_text
 from .profiles import load_profile
 
-def split_comments(text: str) -> list[str]:
-    chunks: list[str] = []
+_REVIEWER_MARKER = re.compile(r"^(?:#+\s*)?(reviewer|referee|editor)\s*([0-9A-Za-z-]*)\s*[:.]?\s*$", re.I)
+_LIST_MARKER = re.compile(r"^(?:[-*]|\d+[.)]|\\item(?:\[[^]]+\])?)\s*(.*)$")
+
+
+def _docx_text(path: Path) -> str:
+    """Extract paragraph text locally without loading macros or external resources."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            document = archive.read("word/document.xml")
+    except (KeyError, OSError, zipfile.BadZipFile) as exc:
+        raise ValueError(f"cannot read DOCX reviewer comments: {exc}") from exc
+    root = ElementTree.fromstring(document)
+    namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    return "\n".join("".join(node.text or "" for node in paragraph.iter(f"{namespace}t")).strip() for paragraph in root.iter(f"{namespace}p"))
+
+
+def _pdf_text(path: Path) -> str:
+    """Use the local Poppler extractor; PDF contents are never sent to a service."""
+    try:
+        result = subprocess.run(["pdftotext", "-layout", str(path), "-"], text=True, capture_output=True, check=False, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(f"cannot extract local PDF reviewer comments: {exc}") from exc
+    if result.returncode != 0:
+        raise ValueError(f"cannot extract local PDF reviewer comments: {result.stderr.strip() or 'pdftotext failed'}")
+    return result.stdout
+
+
+def read_review_comments(path: Path) -> str:
+    suffix = path.suffix.casefold()
+    if suffix == ".docx":
+        return _docx_text(path)
+    if suffix == ".pdf":
+        return _pdf_text(path)
+    return read_text(path)
+
+
+def parse_review_requests(text: str) -> list[dict[str, str]]:
+    """Split each Markdown or LaTeX list request while retaining reviewer and line span."""
+    requests: list[dict[str, str]] = []
+    reviewer = "Unassigned reviewer"
     current: list[str] = []
-    for line in text.splitlines():
+    start_line = 0
+
+    def flush(end_line: int) -> None:
+        nonlocal current, start_line
+        body = " ".join(part.strip() for part in current if part.strip()).strip()
+        if len(body) > 8:
+            requests.append({"comment": body, "reviewer": reviewer, "line_start": str(start_line), "line_end": str(end_line)})
+        current, start_line = [], 0
+
+    for line_number, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
-        is_heading = stripped.startswith("#")
-        is_list_item = bool(re.match(r"^([-*]|\d+[.)])\s+", stripped))
-        is_reviewer_marker = bool(re.match(r"^(reviewer|referee|editor)\b", stripped, re.I))
-        if (is_heading or is_list_item or is_reviewer_marker) and current:
-            chunks.append("\n".join(current).strip())
-            current = []
-        if stripped:
+        if not stripped:
+            flush(line_number - 1)
+            continue
+        if stripped in {r"\begin{description}", r"\end{description}", r"\begin{enumerate}", r"\end{enumerate}", r"\begin{itemize}", r"\end{itemize}"}:
+            continue
+        marker = _REVIEWER_MARKER.match(stripped)
+        if marker:
+            flush(line_number - 1)
+            reviewer = f"{marker.group(1).title()} {marker.group(2)}".strip()
+            continue
+        item = _LIST_MARKER.match(stripped)
+        if item:
+            flush(line_number - 1)
+            label = re.search(r"^\\item\[([^]]+)\]", stripped)
+            if label and _REVIEWER_MARKER.match(label.group(1).strip()):
+                reviewer = label.group(1).strip()
+            current, start_line = [item.group(1).strip()], line_number
+            continue
+        if _REVIEWER_MARKER.match(stripped.rstrip(":")):
+            flush(line_number - 1)
+            marker = _REVIEWER_MARKER.match(stripped.rstrip(":"))
+            assert marker is not None
+            reviewer = f"{marker.group(1).title()} {marker.group(2)}".strip()
+            continue
+        if not current:
+            current, start_line = [stripped.lstrip("#").strip()], line_number
+        else:
             current.append(stripped)
-    if current:
-        chunks.append("\n".join(current).strip())
-    return [
-        chunk
-        for chunk in chunks
-        if len(chunk) > 8 and not re.match(r"^#+\s*(reviewer|referee|editor)\b", chunk, re.I)
-    ]
+    flush(len(text.splitlines()))
+    return requests
+
+
+def split_comments(text: str) -> list[str]:
+    """Compatibility view of the typed request parser."""
+    return [request["comment"] for request in parse_review_requests(text)]
 
 def classify_item(text: str) -> str:
     lowered = text.lower()
@@ -77,10 +147,14 @@ def risk_for(kind: str, text: str) -> str:
 
 def ingest_comments(base: Path, comments_path: str) -> int:
     config = load_config(base)
-    raw = read_text((base / comments_path).resolve())
-    chunks = split_comments(raw)
+    source_path = (base / comments_path).resolve()
+    if base.resolve() not in source_path.parents or not source_path.is_file():
+        raise ValueError("reviewer comments must be an existing file inside the local project")
+    raw = read_review_comments(source_path)
+    chunks = parse_review_requests(raw)
     items = []
-    for index, chunk in enumerate(chunks, start=1):
+    for index, request in enumerate(chunks, start=1):
+        chunk = request["comment"]
         kind = classify_item(chunk)
         items.append(
             {
@@ -91,7 +165,8 @@ def ingest_comments(base: Path, comments_path: str) -> int:
                 "requires_author_input": kind in {"proof", "experiment"},
                 "evidence_required": kind in {"proof", "experiment"},
                 "source": comments_path,
-                "reviewer": infer_reviewer(chunk, index),
+                "source_locator": f"{comments_path}:{request['line_start']}-{request['line_end']}",
+                "reviewer": request["reviewer"] if request["reviewer"] != "Unassigned reviewer" else infer_reviewer(chunk, index),
                 "status": "triaged",
                 "planning_status": "triaged",
                 "risk": risk_for(kind, chunk),
@@ -157,6 +232,13 @@ def experiment_lane_template(comment: str) -> dict[str, object]:
         "paper_locations": [],
         "result_backfill_fields": ["observed_result", "figure_or_table_update", "response_text"],
         "reviewer_request": first_sentence(comment),
+        "comparators": [],
+        "fairness_rules": [],
+        "discretization": {"grid": "", "time_step": "", "error_metric": "", "stopping_criterion": ""},
+        "repetitions": 0,
+        "uncertainty_method": "",
+        "hardware": "",
+        "protocol_status": "incomplete",
     }
 
 def bullet_lines(items: Iterable[dict]) -> str:

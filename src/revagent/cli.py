@@ -54,6 +54,7 @@ from .lanes import (
     proof_audit_for_item,
     proof_approve,
     proof_obligation,
+    proof_record_revision_diff,
     proof_plan_for_item,
     reasoning_for_item,
     record_experiment_result,
@@ -67,7 +68,11 @@ from .provenance import provenance_for_item
 from .readiness import build_submit_pack_dry_run, render_revision_readiness, render_submit_pack_dry_run, write_revision_readiness
 from .review_analysis import analyze_all_review_items, analyze_review_item, render_review_analyses, review_analysis_for_item
 from .rendering import create_draft, incorporate_drafts
+from .response_trace import render_response_trace, write_response_trace
 from .reviews import create_plan, ingest_comments
+from .privacy import privacy_scan
+from .contributions import contribution_data_card_template, create_contribution_package
+from .cockpit import write_author_cockpit
 from .validation import doctor, validate_workspace
 from .external_agent import (
     external_agent_run_artifact,
@@ -100,10 +105,10 @@ from .evolution import (
     render_runtime_events,
     start_worker,
 )
-from .project_runtime import authorize_remote, evaluate_review_item, initialize_project_runtime, project_status, recover_project_runtime, run_project_cycle, service_health, serve_project, set_project_paused, stop_project_service
+from .project_runtime import attach_cycle_actor_bundle, attach_cycle_plan, attach_cycle_review, author_decision_console, authorize_remote, create_cycle_reviewer_session, evaluate_review_item, initialize_project_runtime, open_revision_cycle, project_status, record_cycle_author_escalation, record_cycle_author_gate, record_cycle_author_waiver, recover_project_runtime, reopen_revision_cycle, revision_cycle_status, run_project_cycle, service_health, serve_project, set_project_paused, stop_project_service
 from .review_workers import authorize_experiment, collect_review_worker, create_review_snapshot, plan_review_workers, run_authorized_experiment, start_review_worker
 from .review_rubric import run_review_rubric
-from .benchmark import run_benchmark
+from .benchmark import assess_shadow_scores, generate_synthetic_catalog, record_shadow_expert_scores, register_shadow_benchmark, run_benchmark
 from .supervisor import build_supervisor_feedback, build_supervisor_plan, build_supervisor_workers, get_supervisor_observations, observe_supervisor_workers, render_supervisor_feedback, render_supervisor_observations, render_supervisor_plan, render_supervisor_runs, render_supervisor_workers, run_supervisor_loop
 from .workspace import (
     clean_workspace,
@@ -142,6 +147,17 @@ def build_parser() -> argparse.ArgumentParser:
     review_analysis = sub.add_parser("review-analysis", help="Show structured reviewer-intent analysis.")
     review_analysis.add_argument("item_id", nargs="?")
     sub.add_parser("draft", help="Draft response letter and reviewable manuscript patch notes.")
+    sub.add_parser("privacy-scan", help="Classify local project files and scan for credential candidates before any remote authorization.")
+    contribution_template = sub.add_parser("contribution-template", help="Print a local-only case contribution data-card template.")
+    contribution_template.add_argument("--case-id", required=True)
+    contribution_export = sub.add_parser("contribution-export", help="Create a local metadata-only, human-review-required contribution candidate; never uploads source material.")
+    contribution_export.add_argument("--case-dir", required=True)
+    contribution_export.add_argument("--case-id", required=True)
+    contribution_export.add_argument("--data-card", required=True)
+    contribution_export.add_argument("--confirm", action="store_true", help="Confirm that you reviewed the data card and intend to create a local candidate package.")
+    sub.add_parser("cockpit", help="Write the local author cockpit HTML evidence overview.")
+    response_trace = sub.add_parser("response-trace", help="Build a local request-response-manuscript-evidence traceability report.")
+    response_trace.add_argument("item_id", nargs="?")
     llm_draft = sub.add_parser("llm-draft", help="Generate offline LLM reviewer-intent and response drafts.")
     llm_draft.add_argument("item_id", nargs="?")
     llm_draft.add_argument("--all", action="store_true", help="Draft every review item.")
@@ -174,6 +190,9 @@ def build_parser() -> argparse.ArgumentParser:
     proof_ob = sub.add_parser("proof-obligation", help="Add a proof obligation to a proof workflow.")
     proof_ob.add_argument("item_id")
     proof_ob.add_argument("--add", required=True, help="Proof obligation text to add.")
+    proof_diff = sub.add_parser("proof-diff", help="Record an author-supplied post-revision proof snapshot for audit.")
+    proof_diff.add_argument("item_id")
+    proof_diff.add_argument("--after-file", required=True)
     proof_approval = sub.add_parser("proof-approve", help="Record author approval for a proof workflow.")
     proof_approval.add_argument("item_id")
     proof_approval.add_argument("--note", required=True)
@@ -243,6 +262,43 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("service-health", help="Check persistent runtime and discovered local service health.")
     project_cycle = sub.add_parser("project-cycle", help="Run one bounded local reversible project scheduling cycle.")
     project_cycle.add_argument("--workers", type=int, default=2)
+    cycle_open = sub.add_parser("cycle-open", help="Open an auditable planner/actor/reviewer revision cycle.")
+    cycle_open.add_argument("item_id")
+    cycle_open.add_argument("--planner-id", required=True)
+    cycle_plan = sub.add_parser("cycle-plan", help="Freeze a planner specification in an open revision cycle.")
+    cycle_plan.add_argument("cycle_id")
+    cycle_plan.add_argument("--plan-file", required=True)
+    cycle_act = sub.add_parser("cycle-act", help="Attach actor evidence only; this never edits the manuscript.")
+    cycle_act.add_argument("cycle_id")
+    cycle_act.add_argument("--actor-id", required=True)
+    cycle_act.add_argument("--bundle-file", required=True)
+    cycle_review = sub.add_parser("cycle-review", help="Attach an independent reviewer verdict to actor evidence.")
+    cycle_review.add_argument("cycle_id")
+    cycle_review.add_argument("--reviewer-id", required=True)
+    cycle_review.add_argument("--review-file", required=True)
+    cycle_session = sub.add_parser("cycle-review-session", help="Freeze planner and actor inputs for one independent reviewer.")
+    cycle_session.add_argument("cycle_id")
+    cycle_session.add_argument("--reviewer-id", required=True)
+    cycle_gate = sub.add_parser("cycle-author-gate", help="Record the explicit author decision after independent review.")
+    cycle_gate.add_argument("cycle_id")
+    cycle_gate.add_argument("--author-id", required=True)
+    cycle_gate.add_argument("--decision", required=True, choices=["approve", "reject"])
+    cycle_gate.add_argument("--note", required=True)
+    cycle_waive = sub.add_parser("cycle-author-waive", help="Record a non-blocking low-risk finding waiver without resolving the cycle.")
+    cycle_waive.add_argument("cycle_id")
+    cycle_waive.add_argument("--author-id", required=True)
+    cycle_waive.add_argument("--finding-id", required=True)
+    cycle_waive.add_argument("--note", required=True)
+    cycle_escalate = sub.add_parser("cycle-author-escalate", help="Record an author/expert escalation and block the cycle.")
+    cycle_escalate.add_argument("cycle_id")
+    cycle_escalate.add_argument("--author-id", required=True)
+    cycle_escalate.add_argument("--note", required=True)
+    cycle_reopen = sub.add_parser("cycle-reopen", help="Open a new recorded round after a returned review cycle.")
+    cycle_reopen.add_argument("cycle_id")
+    cycle_reopen.add_argument("--note", required=True)
+    cycle_status = sub.add_parser("cycle-status", help="Show revision-cycle artifacts and append-only events.")
+    cycle_status.add_argument("cycle_id", nargs="?")
+    sub.add_parser("author-console", help="Show pending cycle author decisions and their bound evidence hashes.")
     serve = sub.add_parser("serve", help="Run the loopback-only local review project service.")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
@@ -281,6 +337,17 @@ def build_parser() -> argparse.ArgumentParser:
     experiment_start.add_argument("authorization_id")
     benchmark_run = sub.add_parser("benchmark-run", help="Run a deterministic synthetic or licensed benchmark fixture.")
     benchmark_run.add_argument("--fixture", required=True)
+    benchmark_catalog = sub.add_parser("benchmark-synthetic-catalog", help="Generate a text-free local catalog of at least 200 synthetic evaluation fixtures.")
+    benchmark_catalog.add_argument("--count", type=int, default=200)
+    benchmark_shadow = sub.add_parser("benchmark-shadow", help="Register a local-only historical shadow benchmark without copying source text.")
+    benchmark_shadow.add_argument("--case-dir", required=True)
+    benchmark_shadow.add_argument("--case-id", required=True)
+    benchmark_score = sub.add_parser("benchmark-shadow-score", help="Record one pseudonymous expert scorecard for a shadow benchmark.")
+    benchmark_score.add_argument("--case-id", required=True)
+    benchmark_score.add_argument("--expert-id", required=True)
+    benchmark_score.add_argument("--scores-json", required=True)
+    benchmark_assess = sub.add_parser("benchmark-shadow-assess", help="Fail closed against Phase 39 aggregate score thresholds.")
+    benchmark_assess.add_argument("--scorecards-json", required=True)
     sub.add_parser("agent-status", help="Build and print the safe-auto agent task queue.")
     sub.add_parser("monitor", help="Refresh state and print the recovery monitor.")
     sub.add_parser("dashboard", help="Write the static HTML agent dashboard.")
@@ -527,6 +594,30 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}")
             return 1
         return 0
+    if args.command == "response-trace":
+        trace = write_response_trace(base)
+        try:
+            print(render_response_trace(trace, args.item_id), end="")
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "privacy-scan":
+        print(json.dumps(privacy_scan(base), ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "contribution-template":
+        print(json.dumps(contribution_data_card_template(args.case_id), ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "contribution-export":
+        try:
+            print(create_contribution_package(base, Path(args.case_dir), args.case_id, Path(args.data_card), confirmed=args.confirm))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "cockpit":
+        print(write_author_cockpit(base))
+        return 0
     if args.command == "proof-plan":
         try:
             workflow = proof_plan_for_item(base, args.item_id)
@@ -542,6 +633,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}")
             return 1
         print(f"Added {obligation['id']} to {args.item_id}")
+        return 0
+    if args.command == "proof-diff":
+        try:
+            diff = proof_record_revision_diff(base, args.item_id, args.after_file)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(f"Recorded proof revision snapshot for {args.item_id}: {diff['after_content_sha256']}")
         return 0
     if args.command == "proof-approve":
         try:
@@ -759,6 +858,79 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}")
             return 1
         return 0
+    if args.command == "cycle-open":
+        try:
+            print(json.dumps(open_revision_cycle(base, args.item_id, args.planner_id), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "cycle-plan":
+        try:
+            print(json.dumps(attach_cycle_plan(base, args.cycle_id, Path(args.plan_file)), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "cycle-act":
+        try:
+            print(json.dumps(attach_cycle_actor_bundle(base, args.cycle_id, args.actor_id, Path(args.bundle_file)), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "cycle-review":
+        try:
+            print(json.dumps(attach_cycle_review(base, args.cycle_id, args.reviewer_id, Path(args.review_file)), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "cycle-review-session":
+        try:
+            print(json.dumps(create_cycle_reviewer_session(base, args.cycle_id, args.reviewer_id), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "cycle-author-gate":
+        try:
+            print(json.dumps(record_cycle_author_gate(base, args.cycle_id, args.author_id, args.decision, args.note), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "cycle-author-waive":
+        try:
+            print(json.dumps(record_cycle_author_waiver(base, args.cycle_id, args.author_id, args.finding_id, args.note), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "cycle-author-escalate":
+        try:
+            print(json.dumps(record_cycle_author_escalation(base, args.cycle_id, args.author_id, args.note), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "cycle-reopen":
+        try:
+            print(json.dumps(reopen_revision_cycle(base, args.cycle_id, args.note), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "cycle-status":
+        try:
+            print(json.dumps(revision_cycle_status(base, args.cycle_id), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "author-console":
+        print(json.dumps(author_decision_console(base), ensure_ascii=False, indent=2))
+        return 0
     if args.command == "serve":
         try:
             serve_project(base, args.host, args.port, args.workers, args.once)
@@ -829,6 +1001,40 @@ def main(argv: list[str] | None = None) -> int:
         try:
             print(json.dumps(run_benchmark(base, Path(args.fixture)), ensure_ascii=False, indent=2))
         except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "benchmark-shadow":
+        try:
+            print(json.dumps(register_shadow_benchmark(base, Path(args.case_dir), args.case_id), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "benchmark-synthetic-catalog":
+        try:
+            print(json.dumps(generate_synthetic_catalog(base, args.count), ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "benchmark-shadow-score":
+        try:
+            scores = json.loads(args.scores_json)
+            if not isinstance(scores, dict):
+                raise ValueError("scores-json must be a JSON object")
+            print(json.dumps(record_shadow_expert_scores(base, args.case_id, args.expert_id, scores), ensure_ascii=False, indent=2))
+        except (ValueError, json.JSONDecodeError) as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "benchmark-shadow-assess":
+        try:
+            scorecards = json.loads(args.scorecards_json)
+            if not isinstance(scorecards, dict):
+                raise ValueError("scorecards-json must be a JSON object")
+            print(json.dumps(assess_shadow_scores(scorecards), ensure_ascii=False, indent=2))
+        except (ValueError, json.JSONDecodeError) as exc:
             print(f"error: {exc}")
             return 1
         return 0

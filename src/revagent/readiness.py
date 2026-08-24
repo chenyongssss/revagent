@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 from ._models import Config
@@ -14,7 +15,7 @@ from .proofs import load_proof_workflows
 from .provenance import provenance_missing_or_stale
 from .review_analysis import load_review_analyses
 
-READINESS_SCHEMA_VERSION = 1
+READINESS_SCHEMA_VERSION = 2
 READINESS_STATUSES = {
     "ready",
     "blocked_manual",
@@ -48,6 +49,11 @@ def readiness_source_fingerprint(config: Config) -> str:
         digest.update(b"\0")
         digest.update(path.read_bytes() if path.exists() else b"<missing>")
         digest.update(b"\0")
+    from .project_runtime import author_decision_console
+
+    cycles = author_decision_console(config.workspace.parent)
+    digest.update(json.dumps(cycles.get("cycles", []), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    digest.update(json.dumps(cycles.get("integrity_issues", []), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     return digest.hexdigest()
 
 
@@ -174,6 +180,7 @@ def build_item_readiness(
     proof_workflows: dict[str, dict],
     experiment_manifests: dict[str, dict],
     experiment_attempts: list[dict],
+    revision_cycles: list[dict] | None = None,
 ) -> dict[str, object]:
     item_id = str(item.get("id", ""))
     missing_inputs: list[str] = []
@@ -207,6 +214,20 @@ def build_item_readiness(
     if validation_status != "current":
         missing_inputs.append("validation refresh")
 
+    cycle_records = revision_cycles or []
+    for cycle in cycle_records:
+        state = str(cycle.get("status", ""))
+        cycle_id = str(cycle.get("cycle_id", ""))
+        if state == "awaiting_author_gate":
+            manual_actions.append(f"revision cycle {cycle_id} author decision")
+        elif state in {"draft", "planned", "acted", "returned"}:
+            missing_inputs.append(f"revision cycle {cycle_id} {state}")
+        elif state == "blocked":
+            reason = str(cycle.get("invalidation_reason", "")).strip()
+            missing_inputs.append(f"revision cycle {cycle_id} blocked{': ' + reason if reason else ''}")
+        if any(isinstance(decision, dict) and decision.get("action") == "waive" for decision in cycle.get("author_decisions", [])):
+            missing_inputs.append(f"revision cycle {cycle_id} waiver disclosure")
+
     readiness_status = classify_readiness(
         missing_inputs=missing_inputs,
         manual_actions=manual_actions,
@@ -228,6 +249,7 @@ def build_item_readiness(
         "experiment_status": experiment_status,
         "response_status": response_status,
         "validation_status": validation_status,
+        "revision_cycles": cycle_records,
     }
 
 
@@ -240,6 +262,13 @@ def build_revision_readiness(base: Path) -> dict[str, object]:
     proof_workflows = load_proof_workflows(config)
     experiment_manifests = load_experiment_manifests(config)
     experiment_attempts = load_experiment_run_attempts(config)
+    from .project_runtime import author_decision_console
+
+    cycle_console = author_decision_console(base)
+    cycles_by_item: dict[str, list[dict]] = {}
+    for cycle in cycle_console.get("cycles", []):
+        if isinstance(cycle, dict):
+            cycles_by_item.setdefault(str(cycle.get("item_id", "")), []).append(cycle)
     candidates_by_item: dict[str, list[dict]] = {}
     for candidate in candidates:
         candidates_by_item.setdefault(str(candidate.get("item_id", "")), []).append(candidate)
@@ -253,9 +282,19 @@ def build_revision_readiness(base: Path) -> dict[str, object]:
             proof_workflows=proof_workflows,
             experiment_manifests=experiment_manifests,
             experiment_attempts=experiment_attempts,
+            revision_cycles=cycles_by_item.get(str(item.get("id", "")), []),
         )
         for item in items
     ]
+    cycle_item_ids = {str(cycle.get("cycle_id", "")): str(cycle.get("item_id", "")) for cycle in cycle_console.get("cycles", []) if isinstance(cycle, dict)}
+    for issue in cycle_console.get("integrity_issues", []):
+        if isinstance(issue, str):
+            for record in item_records:
+                cycle_id = next((identifier for identifier in cycle_item_ids if f"revision cycle {identifier} " in issue), "")
+                if cycle_id and cycle_item_ids[cycle_id] != record["item_id"]:
+                    continue
+                record["missing_inputs"].append(f"cycle integrity: {issue}")
+                record["readiness_status"] = classify_readiness(record["missing_inputs"], record["manual_actions"], record["stale_inputs"])
     summary_counts = {status: sum(1 for item in item_records if item.get("readiness_status") == status) for status in sorted(READINESS_STATUSES)}
     blockers = [
         {
@@ -297,6 +336,11 @@ def submit_pack_missing_from_readiness(config: Config, items: list[dict[str, obj
         missing.append("manual gates resolved")
     if any(item.get("readiness_status") != "ready" for item in items):
         missing.append("remaining readiness blockers resolved")
+    if any(any(cycle.get("status") != "author_approved" for cycle in item.get("revision_cycles", [])) for item in items):
+        missing.append("revision cycles resolved")
+    from .project_runtime import cycle_integrity_issues
+    if cycle_integrity_issues(config.workspace.parent):
+        missing.append("revision cycle integrity restored")
     return sorted(set(missing))
 
 
@@ -362,9 +406,20 @@ def readiness_for_item(base: Path, item_id: str) -> dict[str, object]:
 def build_submit_pack_dry_run(base: Path) -> dict[str, object]:
     readiness = write_revision_readiness(base)
     from .validation import validate_workspace
+    from .response_trace import write_response_trace
 
     validation = validate_workspace(base)
+    response_trace = write_response_trace(base)
     missing = list(readiness.get("submit_pack_missing", []))
+    trace_missing: list[str] = []
+    for record in response_trace.get("records", []):
+        item_id = str(record.get("item_id", "unknown"))
+        for label, key in (("response assertion", "response_assertion"), ("manuscript diff", "manuscript_diff"), ("evidence", "evidence"), ("final PDF", "final_pdf")):
+            state = (record.get(key) or {}).get("status")
+            if state in {"missing", "not_assessed", ""}:
+                trace_missing.append(f"{item_id} {label} trace")
+    if trace_missing:
+        missing.append("response trace completeness")
     if validation.get("warnings"):
         missing.append("validation warnings reviewed")
     if validation.get("issues"):
@@ -375,6 +430,7 @@ def build_submit_pack_dry_run(base: Path) -> dict[str, object]:
         "readiness": readiness,
         "validation_warnings": validation.get("warnings", []),
         "validation_issues": validation.get("issues", []),
+        "response_trace_missing": trace_missing,
         "missing": sorted(set(missing)),
     }
 
@@ -399,6 +455,9 @@ def render_submit_pack_dry_run(report: dict[str, object]) -> str:
     lines.extend(["", "## Validation Issues", ""])
     issues = report.get("validation_issues", [])
     lines.extend(f"- {issue}" for issue in issues) if issues else lines.append("- None.")
+    lines.extend(["", "## Response Trace Gaps", ""])
+    trace_gaps = report.get("response_trace_missing", [])
+    lines.extend(f"- {gap}" for gap in trace_gaps) if trace_gaps else lines.append("- None.")
     return "\n".join(lines).rstrip() + "\n"
 
 

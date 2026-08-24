@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Iterable
 
@@ -91,11 +92,22 @@ def proof_context_for_item(item: dict, index: dict[str, object]) -> dict[str, ob
     if claim_env is None and claim_envs:
         claim_env = min(claim_envs, key=lambda env: abs(int(env.get("line", 0)) - loc_line))
     refs = flat_refs((proof_env or {}).get("refs", [])) + flat_refs((claim_env or {}).get("refs", []))
+    supporting_envs = [env for env in envs if env.get("environment") in {"assumption", "definition"}]
     return {
         "claim": claim_env or {},
         "proof": proof_env or {},
         "dependency_refs": sorted(set(refs)),
         "assumption_refs": sorted(ref for ref in set(refs) if ref.startswith("ass:") or "assumption" in ref.lower()),
+        "assumption_definitions": [
+            {
+                "kind": env.get("environment"),
+                "labels": env.get("labels", []),
+                "source_span": env.get("source_span", {}),
+                "content_sha256": env.get("content_sha256", ""),
+                "excerpt": env.get("excerpt", ""),
+            }
+            for env in supporting_envs
+        ],
     }
 
 def build_proof_workflow(item: dict, index: dict[str, object]) -> dict[str, object]:
@@ -122,8 +134,18 @@ def build_proof_workflow(item: dict, index: dict[str, object]) -> dict[str, obje
         "proof_snapshot": proof.get("excerpt", "") or lane.get("proof_snapshot", ""),
         "claim_location": {"file": claim.get("file", ""), "line": claim.get("line", 0), "environment": claim.get("environment", "")},
         "proof_location": {"file": proof.get("file", ""), "line": proof.get("line", 0), "environment": proof.get("environment", "")},
+        "statement_source_span": claim.get("source_span", {}),
+        "proof_source_span": proof.get("source_span", {}),
+        "statement_content_sha256": claim.get("content_sha256", ""),
+        "proof_content_sha256": proof.get("content_sha256", ""),
         "assumption_refs": context["assumption_refs"],
+        "assumption_definition_inventory": context["assumption_definitions"],
         "dependency_refs": context["dependency_refs"],
+        "dependency_graph": [
+            {"from": claim.get("labels", []), "to": ref, "source": "claim_or_proof_reference"}
+            for ref in context["dependency_refs"]
+        ],
+        "revision_diff": {"status": "not_recorded", "before_content_sha256": proof.get("content_sha256", ""), "after_content_sha256": "", "locator": ""},
         "proof_obligations": obligations,
         "unverified_steps": lane.get("unverified_steps", []),
         "approval_status": lane.get("approval_status", "required"),
@@ -139,6 +161,8 @@ def sync_proof_lane_from_workflow(item: dict, workflow: dict[str, object]) -> No
     lane["proof_snapshot"] = workflow.get("proof_snapshot", "")
     lane["assumption_refs"] = workflow.get("assumption_refs", [])
     lane["dependency_refs"] = workflow.get("dependency_refs", [])
+    lane["assumption_definition_inventory"] = workflow.get("assumption_definition_inventory", [])
+    lane["revision_diff"] = workflow.get("revision_diff", {})
     lane["dependencies"] = workflow.get("dependency_refs", [])
     lane["proof_obligations"] = workflow.get("proof_obligations", [])
     lane["approval_status"] = workflow.get("approval_status", "required")
@@ -155,6 +179,9 @@ def render_proof_workflow(workflow: dict[str, object]) -> str:
         f"- Proof: {json.dumps(workflow.get('proof_location', {}), ensure_ascii=False)}",
         f"- Dependency refs: {', '.join(workflow.get('dependency_refs', [])) or 'none'}",
         f"- Assumption refs: {', '.join(workflow.get('assumption_refs', [])) or 'none'}",
+        f"- Statement source: {json.dumps(workflow.get('statement_source_span', {}), ensure_ascii=False)}",
+        f"- Proof source: {json.dumps(workflow.get('proof_source_span', {}), ensure_ascii=False)}",
+        f"- Revision diff: {json.dumps(workflow.get('revision_diff', {}), ensure_ascii=False)}",
         "",
         "## Statement Snapshot",
         "",
@@ -169,6 +196,9 @@ def render_proof_workflow(workflow: dict[str, object]) -> str:
     ]
     obligations = workflow.get("proof_obligations", [])
     lines.extend(f"- {ob['id']} [{ob['status']}] {ob['description']}" for ob in obligations) if obligations else lines.append("- None.")
+    lines.extend(["", "## Assumptions and Definitions", ""])
+    inventory = workflow.get("assumption_definition_inventory", [])
+    lines.extend(f"- {entry.get('kind')} labels={', '.join(entry.get('labels', [])) or 'none'} span={json.dumps(entry.get('source_span', {}), ensure_ascii=False)}" for entry in inventory) if inventory else lines.append("- None located; expert must record any applicable assumptions or definitions.")
     if workflow.get("approval_note"):
         lines.extend(["", "## Approval Note", "", str(workflow["approval_note"])])
     return "\n".join(lines).rstrip() + "\n"
@@ -223,6 +253,43 @@ def proof_obligation(base: Path, item_id: str, description: str) -> dict[str, ob
     append_decision_log(config, f"Proof obligation added for {item_id}", [f"- {obligation['id']}: {description}"])
     return obligation
 
+
+def proof_record_revision_diff(base: Path, item_id: str, after_file: str) -> dict[str, object]:
+    """Freeze an author-supplied post-revision snapshot; it is not a proof verdict."""
+    config = load_config(base)
+    items = load_items(config)
+    item = find_item(items, item_id)
+    if item is None or item.get("kind") != "proof":
+        raise ValueError(f"unknown proof item {item_id}")
+    source = (base / after_file).resolve()
+    if base.resolve() not in source.parents or not source.is_file():
+        raise ValueError("proof revision snapshot must be an existing file inside the local project")
+    raw = source.read_bytes()
+    if not raw:
+        raise ValueError("proof revision snapshot must not be empty")
+    target_dir = config.workspace / "proof_diffs"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"{item_id}-after.txt"
+    target.write_bytes(raw)
+    digest = hashlib.sha256(raw).hexdigest()
+    workflows = load_proof_workflows(config)
+    workflow = workflows.get(item_id) or proof_plan_for_item(base, item_id)
+    workflow["revision_diff"] = {
+        "status": "recorded",
+        "before_content_sha256": workflow.get("proof_content_sha256", ""),
+        "after_content_sha256": digest,
+        "locator": str(target.relative_to(config.workspace)),
+        "recorded_at": now_iso(),
+        "note": "Author/expert must assess the mathematical effect of this snapshot.",
+    }
+    workflow["updated_at"] = now_iso()
+    workflows[item_id] = workflow
+    sync_proof_lane_from_workflow(item, workflow)
+    write_items(config, items)
+    write_proof_workflows(config, workflows)
+    append_decision_log(config, f"Proof revision snapshot recorded for {item_id}", [f"- SHA256: {digest}", "- No proof correctness conclusion was recorded."])
+    return workflow["revision_diff"]
+
 def proof_approve(base: Path, item_id: str, note: str) -> dict[str, object]:
     config = load_config(base)
     items = load_items(config)
@@ -254,6 +321,7 @@ __all__ = [
     "proof_audit_for_item",
     "proof_approve",
     "proof_obligation",
+    "proof_record_revision_diff",
     "proof_plan_for_item",
     "render_proof_workflow",
     "render_proof_workflows",

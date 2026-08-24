@@ -162,6 +162,30 @@ def file_sha256(path: Path) -> str:
             digest.update(chunk)
     return digest.hexdigest()
 
+
+def experiment_protocol_issues(manifest: dict[str, object]) -> list[str]:
+    """Check auditability of an experiment protocol, never its scientific outcome."""
+    issues: list[str] = []
+    if not isinstance(manifest.get("comparators"), list) or not manifest["comparators"]:
+        issues.append("comparators are not declared")
+    if not isinstance(manifest.get("fairness_rules"), list) or not manifest["fairness_rules"]:
+        issues.append("baseline fairness rules are not declared")
+    discretization = manifest.get("discretization")
+    required = ("grid", "time_step", "error_metric", "stopping_criterion")
+    if not isinstance(discretization, dict) or any(not str(discretization.get(key, "")).strip() for key in required):
+        issues.append("grid, time step, error metric, and stopping criterion are required")
+    try:
+        repetitions = int(manifest.get("repetitions", 0))
+    except (TypeError, ValueError):
+        repetitions = 0
+    if repetitions < 2:
+        issues.append("at least two repeated trials are required")
+    if not str(manifest.get("uncertainty_method", "")).strip():
+        issues.append("uncertainty method is not declared")
+    if not str(manifest.get("hardware", "")).strip():
+        issues.append("hardware description is not declared")
+    return issues
+
 def build_experiment_manifest(config: Config, item: dict) -> dict[str, object]:
     lane = item.get("experiment_lane") or experiment_lane_template(item.get("comment", ""))
     manifest_id = lane.get("manifest_id") or item["id"]
@@ -202,6 +226,13 @@ def build_experiment_manifest(config: Config, item: dict) -> dict[str, object]:
         "artifact_hashes": artifact_hashes,
         "backfill_targets": lane.get("backfill_targets", []),
         "reviewer_request": lane.get("reviewer_request") or first_sentence(item.get("comment", "")),
+        "comparators": lane.get("comparators", []),
+        "fairness_rules": lane.get("fairness_rules", []),
+        "discretization": lane.get("discretization", {}),
+        "repetitions": lane.get("repetitions", 0),
+        "uncertainty_method": lane.get("uncertainty_method", ""),
+        "hardware": lane.get("hardware", ""),
+        "protocol_status": "incomplete",
         "updated_at": now_iso(),
     }
 
@@ -216,6 +247,8 @@ def sync_experiment_lane_from_manifest(item: dict, manifest: dict[str, object]) 
     lane["expected_artifacts"] = manifest.get("expected_artifacts", [])
     lane["artifact_hashes"] = manifest.get("artifact_hashes", {})
     lane["backfill_targets"] = manifest.get("backfill_targets", [])
+    for key in ("comparators", "fairness_rules", "discretization", "repetitions", "uncertainty_method", "hardware", "protocol_status"):
+        lane[key] = manifest.get(key, lane.get(key))
     lane["contract_status"] = manifest.get("status", "planned")
     if manifest.get("artifacts"):
         lane["result_status"] = "recorded"
@@ -243,6 +276,10 @@ def render_experiment_manifest(manifest: dict[str, object]) -> str:
         f"- Seed: {manifest.get('seed') or 'TBD'}",
         f"- Parameters: {json.dumps(manifest.get('parameters', {}), ensure_ascii=False)}",
         f"- Expected artifacts: {', '.join(manifest.get('expected_artifacts', [])) or 'TBD'}",
+        f"- Comparators: {', '.join(manifest.get('comparators', [])) or 'TBD'}",
+        f"- Fairness rules: {', '.join(manifest.get('fairness_rules', [])) or 'TBD'}",
+        f"- Repetitions: {manifest.get('repetitions', 0) or 'TBD'}; uncertainty: {manifest.get('uncertainty_method') or 'TBD'}",
+        f"- Protocol status: {manifest.get('protocol_status', 'incomplete')}",
         "",
         "## Artifacts",
         "",
@@ -266,6 +303,7 @@ def experiment_contract(base: Path, item_id: str) -> dict[str, object]:
     if item is None or item.get("kind") != "experiment":
         raise ValueError(f"unknown experiment item {item_id}")
     manifest = build_experiment_manifest(config, item)
+    manifest["protocol_status"] = "complete" if not experiment_protocol_issues(manifest) else "incomplete"
     sync_experiment_lane_from_manifest(item, manifest)
     write_items(config, items)
     manifests = load_experiment_manifests(config)
@@ -281,8 +319,8 @@ def experiment_artifact(base: Path, item_id: str, artifact_path: str, kind: str,
     if item is None or item.get("kind") != "experiment":
         raise ValueError(f"unknown experiment item {item_id}")
     path = (config.tex_root / artifact_path).resolve()
-    if not path.exists():
-        raise ValueError(f"experiment artifact not found: {artifact_path}")
+    if config.tex_root.resolve() not in path.parents or not path.is_file():
+        raise ValueError(f"experiment artifact must be an existing file inside the project: {artifact_path}")
     manifests = load_experiment_manifests(config)
     manifest = manifests.get(item_id) or build_experiment_manifest(config, item)
     artifact_hash = file_sha256(path)
@@ -353,7 +391,7 @@ def expected_artifact_status(config: Config, manifest: dict[str, object]) -> lis
     for rel in manifest.get("expected_artifacts", []):
         rel_text = str(rel)
         path = (config.tex_root / rel_text).resolve()
-        exists = path.exists()
+        exists = config.tex_root.resolve() in path.parents and path.exists()
         artifacts.append(
             {
                 "path": rel_text,
@@ -457,28 +495,13 @@ def experiment_run_record(base: Path, item_id: str) -> dict[str, object]:
     }
     append_experiment_run_attempt(config, attempt)
     if exit_code == 0:
-        manifest.setdefault("artifacts", [])
-        manifest.setdefault("artifact_hashes", {})
-        for artifact in detected:
-            if not artifact.get("exists"):
-                continue
-            rel = str(artifact["path"])
-            entry = {
-                "path": rel,
-                "kind": "data",
-                "note": f"Detected from experiment run {attempt_id}",
-                "sha256": artifact.get("sha256", ""),
-                "recorded_at": finished_at,
-            }
-            manifest["artifacts"] = [existing for existing in manifest["artifacts"] if existing.get("path") != rel] + [entry]
-            manifest["artifact_hashes"][rel] = artifact.get("sha256", "")
-        if any(artifact.get("exists") for artifact in detected):
-            manifest["status"] = "artifact_recorded"
+        # An exit code and generated file are execution evidence only.  They
+        # are not an interpreted result and cannot satisfy a result gate.
+        manifest["last_attempt_id"] = attempt_id
+        manifest["last_attempt_status"] = "executed_not_interpreted"
         manifest["updated_at"] = now_iso()
         manifests = load_experiment_manifests(config)
         manifests[item_id] = manifest
-        sync_experiment_lane_from_manifest(item, manifest)
-        write_items(config, items)
         write_experiment_manifests(config, manifests)
     append_decision_log(config, f"Experiment run recorded for {item_id}", [f"- Attempt: {attempt_id}", f"- Exit code: {exit_code}"])
     return attempt
@@ -518,6 +541,7 @@ __all__ = [
     "build_experiment_manifest",
     "experiment_artifact",
     "experiment_contract",
+    "experiment_protocol_issues",
     "experiment_incorporate",
     "experiment_plan_for_item",
     "experiment_run_preview",
