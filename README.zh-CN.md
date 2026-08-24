@@ -73,4 +73,4 @@ python -m pytest
 
 CI 覆盖 Windows、Linux 和 macOS。发布资产附带校验和、SPDX SBOM 和 GitHub 构建证明。v0.1.0 的限制与验证方法见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 
-更多内容：[演示项目](examples/latex_revision_demo/)、[贡献指南](CONTRIBUTING.md)、[安全政策](SECURITY.md) 和 [变更日志](CHANGELOG.md)。
+更多内容：[贡献指南](CONTRIBUTING.md)、[安全政策](SECURITY.md) 和 [变更日志](CHANGELOG.md)。

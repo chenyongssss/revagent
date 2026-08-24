@@ -73,4 +73,4 @@ python -m pytest
 
 CI tests Windows, Linux, and macOS. Release assets include checksums, an SPDX SBOM, and GitHub build attestations. See [RELEASE_NOTES.md](RELEASE_NOTES.md) for v0.1.0 limitations and verification instructions.
 
-Useful links: [demo project](examples/latex_revision_demo/), [contributing](CONTRIBUTING.md), [security policy](SECURITY.md), and [changelog](CHANGELOG.md).
+Useful links: [contributing](CONTRIBUTING.md), [security policy](SECURITY.md), and [changelog](CHANGELOG.md).
