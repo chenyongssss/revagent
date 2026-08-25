@@ -19,6 +19,7 @@ RevAgent is a local-first, auditable revision assistant for computational-mathem
 | --- | --- |
 | Manuscript | A complete LaTeX source tree. RevAgent can index labels, theorem-like environments, references, and source locations; candidate edits and compilation checks are LaTeX-only in v0.1. |
 | Reviewer comments | **Preferred:** `.tex` or `.md`, parsed directly. `.txt` is also parsed directly. `.docx` and text-based `.pdf` are converted locally to an auditable Markdown copy before parsing. |
+| Coding agents | Any coding agent can help deploy RevAgent and run its local workflow. The optional external automation commands (`revagent run` and Codex review workers) currently require the Codex CLI. |
 
 All material stays local. A converted comment copy, its source hash, and its conversion record are written under `.revagent/`; the original file is never changed or uploaded.
 
@@ -41,7 +42,7 @@ python -m pip install -e .[dev]
 
 On macOS or Linux, activate with `source .venv/bin/activate`.
 
-**Using a coding agent:** open the cloned `revagent` folder in Codex, Claude Code, or another local coding agent, then ask it to run the install commands in that folder. The commands create the environment and install the project locally; RevAgent does not require Codex or any specific agent at runtime.
+**Using a coding agent:** Codex, Claude Code, or another local coding agent can open the cloned `revagent` folder and perform this installation for you. Afterward, the standard local workflow does not require an agent environment. The optional `revagent run` and Codex review-worker automation features are the current exception: they require the Codex CLI.
 
 ### 2. Prepare one revision workspace
 

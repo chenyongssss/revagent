@@ -19,6 +19,7 @@ RevAgent 是一个面向计算数学论文返修的本地优先、可审计助�
 | --- | --- |
 | 稿件 | 完整 LaTeX 源码树。RevAgent 可索引标签、定理类环境、引用和源码位置；v0.1 的候选修改与编译检查仅支持 LaTeX。 |
 | 审稿意见 | **优先：** `.tex` 或 `.md`，直接解析；`.txt` 也可直接解析；`.docx` 和文本型 `.pdf` 会先在本地转换为可审计的 Markdown 副本，再进行解析。 |
+| 编码 Agent | 任意编码 Agent 都可协助部署 RevAgent 并执行本地工作流；可选的外部自动化命令（`revagent run` 与 Codex review worker）目前需要 Codex CLI。 |
 
 所有材料均保留在本地。转换后的审稿意见副本、原文件哈希和转换记录均写入 `.revagent/`；原文件不会被修改或上传。
 
@@ -41,7 +42,7 @@ python -m pip install -e .[dev]
 
 macOS 或 Linux 请使用 `source .venv/bin/activate` 激活环境。
 
-**使用编码 Agent：** 在 Codex、Claude Code 或其他本地编码 Agent 中打开克隆后的 `revagent` 文件夹，再让它在该文件夹中执行上述安装命令即可。命令会在本地创建环境并安装项目；RevAgent 运行时不依赖 Codex 或任何特定 Agent。
+**使用编码 Agent：** Codex、Claude Code 或其他本地编码 Agent 都可以打开克隆后的 `revagent` 文件夹，并代你执行上述安装命令。完成后，标准本地工作流不需要 Agent 环境。例外是可选的 `revagent run` 和 Codex review-worker 自动化功能：它们目前需要安装 Codex CLI。
 
 ### 2. 准备一个返修工作区
 
