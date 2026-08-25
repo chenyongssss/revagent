@@ -29,7 +29,7 @@ RevAgent 是一个面向计算数学论文返修的本地优先、可审计助�
 
 ### 1. 安装
 
-在 Codex 工作区终端或任意具备 Python 3.10+ 的本地终端中运行：
+在任意具备 Python 3.10+ 的本地终端中运行；也可以使用 Codex、Claude Code 或其他编码 Agent 提供的终端：
 
 ```powershell
 git clone https://github.com/chenyongssss/revagent.git
@@ -40,6 +40,8 @@ python -m pip install -e .[dev]
 ```
 
 macOS 或 Linux 请使用 `source .venv/bin/activate` 激活环境。
+
+**使用编码 Agent：** 在 Codex、Claude Code 或其他本地编码 Agent 中打开克隆后的 `revagent` 文件夹，再让它在该文件夹中执行上述安装命令即可。命令会在本地创建环境并安装项目；RevAgent 运行时不依赖 Codex 或任何特定 Agent。
 
 ### 2. 准备一个返修工作区
 

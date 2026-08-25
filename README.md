@@ -29,7 +29,7 @@ All material stays local. A converted comment copy, its source hash, and its con
 
 ### 1. Install
 
-Use a terminal in the Codex workspace, or any local terminal with Python 3.10+:
+Use any local terminal with Python 3.10+, including the terminal provided by Codex, Claude Code, or another coding agent:
 
 ```powershell
 git clone https://github.com/chenyongssss/revagent.git
@@ -40,6 +40,8 @@ python -m pip install -e .[dev]
 ```
 
 On macOS or Linux, activate with `source .venv/bin/activate`.
+
+**Using a coding agent:** open the cloned `revagent` folder in Codex, Claude Code, or another local coding agent, then ask it to run the install commands in that folder. The commands create the environment and install the project locally; RevAgent does not require Codex or any specific agent at runtime.
 
 ### 2. Prepare one revision workspace
 
