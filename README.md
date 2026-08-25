@@ -1,14 +1,19 @@
 # RevAgent
 
-[简体中文](README.zh-CN.md)
+<p align="center"><strong>Local-first · Auditable · Human-gated</strong></p>
+
+<p align="center"><a href="README.zh-CN.md">简体中文</a> · <a href="#quick-start">Quick start</a> · <a href="docs/advanced-usage.md">Advanced usage</a> · <a href="SECURITY.md">Security</a></p>
 
 RevAgent is a local-first, auditable revision assistant for computational-mathematics manuscripts. It turns editor and reviewer feedback into tracked review items, source locations, revision plans, evidence records, response drafts, and explicit author decisions.
 
-Built for revision workflows common in journals such as *SIAM Journal on Scientific Computing (SISC)*, *SIAM Journal on Numerical Analysis (SINUM)*, *Mathematics of Computation*, *IMA Journal of Numerical Analysis*, *Journal of Computational Physics*, and *Numerische Mathematik*. These are representative use cases, not endorsements or submission guarantees.
+> [!NOTE]
+> Designed for revision workflows common in *SISC*, *SINUM*, *Mathematics of Computation*, *IMA Journal of Numerical Analysis*, *Journal of Computational Physics*, and *Numerische Mathematik*. These are representative use cases, not endorsements or submission guarantees.
 
-![RevAgent workflow: reviewer feedback flows through an auditable revision graph, evidence checks, local protection, and human approval.](docs/assets/revagent-workflow.png)
+<p align="center"><img src="docs/assets/revagent-workflow.png" alt="RevAgent workflow: reviewer feedback flows through an auditable revision graph, evidence checks, local protection, and human approval." width="1200"></p>
 
-## What it supports
+<p align="center"><em>Feedback → revision map → evidence → human review → response package</em></p>
+
+## At a glance
 
 | Material | Support |
 | --- | --- |
@@ -17,7 +22,12 @@ Built for revision workflows common in journals such as *SIAM Journal on Scienti
 
 All material stays local. A converted comment copy, its source hash, and its conversion record are written under `.revagent/`; the original file is never changed or uploaded.
 
-## 1. Install
+> [!TIP]
+> For the clearest item boundaries and source locations, use TeX or Markdown for reviewer comments.
+
+## Quick start
+
+### 1. Install
 
 Use a terminal in the Codex workspace, or any local terminal with Python 3.10+:
 
@@ -31,7 +41,7 @@ python -m pip install -e .[dev]
 
 On macOS or Linux, activate with `source .venv/bin/activate`.
 
-## 2. Prepare one revision workspace
+### 2. Prepare one revision workspace
 
 Work from a copy of the manuscript:
 
@@ -46,7 +56,7 @@ my-paper-review/
 
 Keep the full LaTeX source tree in `manuscript/`, including files referenced by `\input` or `\include`. TeX and Markdown reviewer files are recommended because their item boundaries and line locations are preserved directly.
 
-## 3. Run the first pass
+### 3. Run the first pass
 
 From `my-paper-review/`:
 
@@ -66,10 +76,15 @@ revagent validate
 - `cockpit --lang en` creates a local overview; use `--lang zh` for Chinese.
 - `validate` checks workspace state, provenance, and traceability. Add `--compile` only for an explicit LaTeX compilation check.
 
+**Result:** inspect the generated local records in `.revagent/`, then use the cockpit or the advanced commands when you are ready to review individual items.
+
 ## Safety boundary
 
-RevAgent never certifies proofs, stability, convergence, experiments, response facts, or a final PDF. Those decisions require author or domain-expert approval. Candidate edits are reviewable first and are never silently applied.
+> [!IMPORTANT]
+> RevAgent never certifies proofs, stability, convergence, experiments, response facts, or a final PDF. Those decisions require author or domain-expert approval. Candidate edits are reviewable first and are never silently applied.
 
 ## More
 
-See [advanced usage](docs/advanced-usage.md) for per-item commands, local browser access, community calibration, development, and release verification. See [security](SECURITY.md), [contributing](CONTRIBUTING.md), and [release notes](RELEASE_NOTES.md) for policy and project details.
+- [Advanced usage](docs/advanced-usage.md): per-item commands, local browser access, community calibration, development, and release verification.
+- [Security](SECURITY.md): privacy and execution boundaries.
+- [Contributing](CONTRIBUTING.md) and [release notes](RELEASE_NOTES.md): project collaboration and version limitations.

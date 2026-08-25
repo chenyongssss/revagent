@@ -1,14 +1,19 @@
 # RevAgent
 
-[English](README.md)
+<p align="center"><strong>本地优先 · 可审计 · 人工签核</strong></p>
+
+<p align="center"><a href="README.md">English</a> · <a href="#快速开始">快速开始</a> · <a href="docs/advanced-usage.md">高级用法</a> · <a href="SECURITY.md">安全政策</a></p>
 
 RevAgent 是一个面向计算数学论文返修的本地优先、可审计助手。它把编辑和审稿意见转化为可追踪的审稿事项、源码位置、返修计划、证据记录、回复草稿和明确的作者决策。
 
-适用于 *SIAM Journal on Scientific Computing (SISC)*、*SIAM Journal on Numerical Analysis (SINUM)*、*Mathematics of Computation*、*IMA Journal of Numerical Analysis*、*Journal of Computational Physics* 和 *Numerische Mathematik* 等期刊中常见的返修工作流。这些仅是代表性使用场景，不代表期刊认可或投稿保证。
+> [!NOTE]
+> 适用于 *SISC*、*SINUM*、*Mathematics of Computation*、*IMA Journal of Numerical Analysis*、*Journal of Computational Physics* 和 *Numerische Mathematik* 等期刊中常见的返修工作流。这些仅是代表性使用场景，不代表期刊认可或投稿保证。
 
-![RevAgent 工作流：审稿意见经过可审计的返修图谱、证据检查、本地保护与人工签核。](docs/assets/revagent-workflow.png)
+<p align="center"><img src="docs/assets/revagent-workflow.png" alt="RevAgent 工作流：审稿意见经过可审计的返修图谱、证据检查、本地保护与人工签核。" width="1200"></p>
 
-## 支持范围
+<p align="center"><em>审稿意见 → 返修图谱 → 证据 → 人工审阅 → 回复包</em></p>
+
+## 一览
 
 | 材料 | 支持方式 |
 | --- | --- |
@@ -17,7 +22,12 @@ RevAgent 是一个面向计算数学论文返修的本地优先、可审计助�
 
 所有材料均保留在本地。转换后的审稿意见副本、原文件哈希和转换记录均写入 `.revagent/`；原文件不会被修改或上传。
 
-## 1. 安装
+> [!TIP]
+> 为获得最清晰的事项边界和源码定位，建议将审稿意见保存为 TeX 或 Markdown。
+
+## 快速开始
+
+### 1. 安装
 
 在 Codex 工作区终端或任意具备 Python 3.10+ 的本地终端中运行：
 
@@ -31,7 +41,7 @@ python -m pip install -e .[dev]
 
 macOS 或 Linux 请使用 `source .venv/bin/activate` 激活环境。
 
-## 2. 准备一个返修工作区
+### 2. 准备一个返修工作区
 
 请从稿件的副本开始：
 
@@ -46,7 +56,7 @@ my-paper-review/
 
 将完整 LaTeX 源码树放入 `manuscript/`，包括被 `\input` 或 `\include` 引用的文件。推荐使用 TeX 或 Markdown 审稿意见，因为系统可直接保留其事项边界和行号位置。
 
-## 3. 第一次运行
+### 3. 第一次运行
 
 进入 `my-paper-review/` 后执行：
 
@@ -66,10 +76,15 @@ revagent validate
 - `cockpit --lang zh`：生成中文本地总览；使用 `--lang en` 可生成英文版。
 - `validate`：检查工作区状态、溯源和追踪关系；只有在明确需要检查 LaTeX 编译时才添加 `--compile`。
 
+**结果：** 在 `.revagent/` 查看生成的本地记录；准备逐项审阅时，可使用 cockpit 或高级命令。
+
 ## 安全边界
 
-RevAgent 不会认证证明、稳定性、收敛性、实验、回复事实或最终 PDF；这些决定必须由作者或子领域专家签核。候选修改必须先供人工审阅，绝不会被静默应用。
+> [!IMPORTANT]
+> RevAgent 不会认证证明、稳定性、收敛性、实验、回复事实或最终 PDF；这些决定必须由作者或子领域专家签核。候选修改必须先供人工审阅，绝不会被静默应用。
 
 ## 更多内容
 
-单项审阅命令、本地浏览器界面、社区校准、开发和发布验证见[高级用法](docs/advanced-usage.md)。隐私与执行边界见[安全政策](SECURITY.md)，项目协作见[贡献指南](CONTRIBUTING.md)，版本限制见[发布说明](RELEASE_NOTES.md)。
+- [高级用法](docs/advanced-usage.md)：单项审阅命令、本地浏览器界面、社区校准、开发和发布验证。
+- [安全政策](SECURITY.md)：隐私与执行边界。
+- [贡献指南](CONTRIBUTING.md) 和 [发布说明](RELEASE_NOTES.md)：项目协作与版本限制。
