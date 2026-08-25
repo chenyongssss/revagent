@@ -88,6 +88,9 @@ revagent validate
 
 ## More
 
-- [Advanced usage](docs/advanced-usage.md): per-item commands, local browser access, community calibration, development, and release verification.
+- [User guide](docs/user-guide.md): the complete practical workflow, artifacts, per-item review, validation, and hand-off.
+- [Dashboard guide](docs/dashboard.md): static cockpit files, local browser service, endpoints, and lifecycle.
+- [Community contributions](docs/community-contributions.md): how to prepare an openly shareable case without exposing material accidentally.
+- [Advanced usage](docs/advanced-usage.md): compact command reference, development, and release verification.
 - [Security](SECURITY.md): privacy and execution boundaries.
 - [Contributing](CONTRIBUTING.md) and [release notes](RELEASE_NOTES.md): project collaboration and version limitations.

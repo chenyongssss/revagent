@@ -88,6 +88,9 @@ revagent validate
 
 ## 更多内容
 
-- [高级用法](docs/advanced-usage.md)：单项审阅命令、本地浏览器界面、社区校准、开发和发布验证。
+- [完整使用指南](docs/user-guide.zh-CN.md)：完整工作流、生成工件、单项审阅、验证和交接。
+- [Dashboard 指南](docs/dashboard.md)：静态 cockpit、本地浏览器服务、端点和生命周期。
+- [社区贡献](docs/community-contributions.md)：如何在不意外暴露材料的前提下准备可公开分享的案例。
+- [高级用法](docs/advanced-usage.md)：紧凑命令参考、开发和发布验证。
 - [安全政策](SECURITY.md)：隐私与执行边界。
 - [贡献指南](CONTRIBUTING.md) 和 [发布说明](RELEASE_NOTES.md)：项目协作与版本限制。

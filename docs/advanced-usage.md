@@ -1,5 +1,7 @@
 # Advanced usage
 
+For the complete workflow, generated artifacts, and first-pass commands, see the [user guide](user-guide.md). For the local cockpit, see the [dashboard guide](dashboard.md); for openly shareable cases, see [community contributions](community-contributions.md).
+
 ## Per-item review and hand-off
 
 | Goal | Command |
