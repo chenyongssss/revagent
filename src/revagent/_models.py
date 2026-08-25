@@ -4,13 +4,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 WORKSPACE = ".revagent"
-CURRENT_SCHEMA_VERSION = "32"
+CURRENT_SCHEMA_VERSION = "33"
 PLANNING_STATUSES = {"triaged", "planned", "drafted", "evidence_ready", "approved", "incorporated", "closed"}
 EXPERIMENT_CONTRACT_STATUSES = {"not_planned", "planned", "artifact_recorded", "incorporated"}
 SCHEMA_FILES = [
     "revision.yaml",
     "journal_profile.json",
     "review_items.json",
+    "comment_import.json",
     "latex_index.json",
     "item_plans.json",
     "item_plans.md",

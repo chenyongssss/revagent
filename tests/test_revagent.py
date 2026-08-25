@@ -3,6 +3,7 @@ import json
 import shutil
 import sqlite3
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -213,6 +214,47 @@ def test_comment_parser_keeps_reviewer_context_and_latex_item_locations(tmp_path
     assert ingest_comments(tmp_path, "comments.md") == 3
     items = json.loads((tmp_path / ".revagent" / "review_items.json").read_text(encoding="utf-8"))
     assert items[1]["source_locator"] == "comments.md:3-3"
+
+
+def test_comment_imports_preserve_tex_and_normalize_docx_and_pdf(tmp_path: Path, monkeypatch) -> None:
+    write_demo_project(tmp_path)
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    (tmp_path / "comments.tex").write_text(
+        "\\begin{description}\n\\item[Reviewer 1] Please clarify the assumption.\n\\end{description}\n",
+        encoding="utf-8",
+    )
+    assert ingest_comments(tmp_path, "comments.tex") == 1
+    direct = json.loads((tmp_path / ".revagent" / "comment_import.json").read_text(encoding="utf-8"))
+    direct_items = json.loads((tmp_path / ".revagent" / "review_items.json").read_text(encoding="utf-8"))
+    assert direct["conversion"] == "direct"
+    assert direct_items[0]["source_locator"] == "comments.tex:2-3"
+
+    docx = tmp_path / "comments.docx"
+    document = (
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        "<w:body><w:p><w:r><w:t>Reviewer 2</w:t></w:r></w:p>"
+        "<w:p><w:r><w:t>- Add a fixed seed.</w:t></w:r></w:p></w:body></w:document>"
+    )
+    with zipfile.ZipFile(docx, "w") as archive:
+        archive.writestr("word/document.xml", document)
+    assert ingest_comments(tmp_path, "comments.docx") == 1
+    imported = json.loads((tmp_path / ".revagent" / "comment_import.json").read_text(encoding="utf-8"))
+    assert imported["conversion"] == "docx_to_markdown"
+    assert (tmp_path / imported["normalized_path"]).exists()
+    docx_items = json.loads((tmp_path / ".revagent" / "review_items.json").read_text(encoding="utf-8"))
+    assert docx_items[0]["source"] == "comments.docx"
+    assert docx_items[0]["source_locator"].startswith(".revagent/imports/")
+
+    pdf = tmp_path / "comments.pdf"
+    pdf.write_bytes(b"%PDF-placeholder")
+    monkeypatch.setattr("revagent.reviews._pdf_text", lambda path: "# Editor\n- Add a baseline.\n")
+    assert ingest_comments(tmp_path, "comments.pdf") == 1
+    pdf_import = json.loads((tmp_path / ".revagent" / "comment_import.json").read_text(encoding="utf-8"))
+    assert pdf_import["conversion"] == "pdf_to_markdown"
+    pdf.write_bytes(b"%PDF-modified")
+    validation = validate_workspace(tmp_path)
+    assert not validation["ok"]
+    assert any("source hash drift" in issue for issue in validation["issues"])
 
 
 def test_response_trace_links_request_response_evidence_and_unassessed_pdf(tmp_path: Path, monkeypatch) -> None:

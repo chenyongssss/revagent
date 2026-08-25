@@ -2,11 +2,22 @@
 
 [English](README.md)
 
-RevAgent 将 LaTeX 稿件和审稿意见整理为可审计的本地工件：审稿事项、源码定位、返修计划、回复草稿、证据记录和作者决策。它帮助作者检查返修过程，而不是取代作者或子领域专家。
+RevAgent 是一个面向计算数学论文返修的本地优先、可审计助手。它把编辑和审稿意见转化为可追踪的审稿事项、源码位置、返修计划、证据记录、回复草稿和明确的作者决策。
+
+适用于 *SIAM Journal on Scientific Computing (SISC)*、*SIAM Journal on Numerical Analysis (SINUM)*、*Mathematics of Computation*、*IMA Journal of Numerical Analysis*、*Journal of Computational Physics* 和 *Numerische Mathematik* 等期刊中常见的返修工作流。这些仅是代表性使用场景，不代表期刊认可或投稿保证。
 
 ![RevAgent 工作流：审稿意见经过可审计的返修图谱、证据检查、本地保护与人工签核。](docs/assets/revagent-workflow.png)
 
-## 1. 安装与部署
+## 支持范围
+
+| 材料 | 支持方式 |
+| --- | --- |
+| 稿件 | 完整 LaTeX 源码树。RevAgent 可索引标签、定理类环境、引用和源码位置；v0.1 的候选修改与编译检查仅支持 LaTeX。 |
+| 审稿意见 | **优先：** `.tex` 或 `.md`，直接解析；`.txt` 也可直接解析；`.docx` 和文本型 `.pdf` 会先在本地转换为可审计的 Markdown 副本，再进行解析。 |
+
+所有材料均保留在本地。转换后的审稿意见副本、原文件哈希和转换记录均写入 `.revagent/`；原文件不会被修改或上传。
+
+## 1. 安装
 
 在 Codex 工作区终端或任意具备 Python 3.10+ 的本地终端中运行：
 
@@ -15,18 +26,14 @@ git clone https://github.com/chenyongssss/revagent.git
 cd revagent
 python -m venv .venv
 & .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
 python -m pip install -e .[dev]
-python -m pytest
 ```
 
-macOS 或 Linux 请用 `source .venv/bin/activate` 激活环境。
+macOS 或 Linux 请使用 `source .venv/bin/activate` 激活环境。
 
-如果你使用 Codex，先打开克隆后的 `revagent` 文件夹，并在其终端执行上述安装命令。实际处理论文时，再用 Codex 打开独立的 review 工作目录；此时可让 Codex 帮你检查本地工件或运行 RevAgent 命令。
+## 2. 准备一个返修工作区
 
-## 2. 准备 review 工作目录
-
-请从稿件的**副本**开始，每轮返修使用一个独立文件夹：
+请从稿件的副本开始：
 
 ```text
 my-paper-review/
@@ -34,10 +41,10 @@ my-paper-review/
     paper.tex
     sections/
     bibliography.bib
-  reviewer_comments.md
+  reviewer_comments.tex   # 也可为 .md、.txt、.docx、.pdf
 ```
 
-把完整 LaTeX 源码树放入 `manuscript/`，包括被 `\\input` 或 `\\include` 引用的文件。把编辑和审稿意见放入 `reviewer_comments.md`；支持本地 Markdown、文本、DOCX 与 PDF 导入。
+将完整 LaTeX 源码树放入 `manuscript/`，包括被 `\input` 或 `\include` 引用的文件。推荐使用 TeX 或 Markdown 审稿意见，因为系统可直接保留其事项边界和行号位置。
 
 ## 3. 第一次运行
 
@@ -45,67 +52,24 @@ my-paper-review/
 
 ```powershell
 revagent init --journal siam --tex-root manuscript --main-tex paper.tex
-revagent ingest-comments reviewer_comments.md
+revagent ingest-comments reviewer_comments.tex
 revagent plan
 revagent draft
 revagent cockpit --lang zh
 revagent validate
 ```
 
-各命令的含义：
-
-- `init`：创建本地 `.revagent/` 记录，并指定主稿入口。
-- `ingest-comments`：导入编辑和审稿意见，并将每项请求独立编号。
-- `plan`：把审稿事项关联到 LaTeX 源码，生成返修或证据义务；不会修改稿件。
-- `draft`：生成可供审阅的回复草稿和候选修改工件；不会应用修改。
+- `init`：创建 `.revagent/` 并指定主稿入口。
+- `ingest-comments`：导入编辑和审稿请求；DOCX/PDF 导入还会生成本地标准化 Markdown 记录。
+- `plan`：将请求关联到 LaTeX 位置，并记录返修或证据义务；不会修改稿件。
+- `draft`：生成可审阅的回复和候选修改工件；不会应用修改。
 - `cockpit --lang zh`：生成中文本地总览；使用 `--lang en` 可生成英文版。
-- `validate`：在交接前检查工作区、状态和追踪关系；只有在明确需要检查 LaTeX 编译时才添加 `--compile`。
-
-所有生成记录都保存在 `.revagent/`。在修改稿件前，请先审阅回复草稿和候选修改。
-
-## 4. 审阅与交接
-
-| 目标 | 命令 |
-| --- | --- |
-| 查看一条审稿事项 | `revagent inspect R001` |
-| 创建或查看单项计划 | `revagent plan-item R001` / `revagent review-analysis R001` |
-| 审计证明类请求 | `revagent proof-plan R001`，再运行 `revagent proof-audit R001` |
-| 记录实验复现约束 | `revagent experiment-contract R002` |
-| 查看追踪关系和阻塞项 | `revagent response-trace` / `revagent readiness` |
-| 打开本地总览 | `revagent cockpit --lang en` / `revagent cockpit --lang zh` |
-| 检查最终交接包 | `revagent submit-pack --dry-run` |
-
-使用 `revagent --help` 查看完整命令，使用 `revagent <command> --help` 查看具体参数。CLI 仍保留运行时、worker、基准和自动化等高级接口，供受控集成或脚本调用；首次返修并不需要使用它们。
-
-如需本地浏览器界面，运行 `revagent serve`，然后打开 `http://127.0.0.1:8765/cockpit?lang=en` 或 `http://127.0.0.1:8765/cockpit?lang=zh`。
+- `validate`：检查工作区状态、溯源和追踪关系；只有在明确需要检查 LaTeX 编译时才添加 `--compile`。
 
 ## 安全边界
 
-- 证明、稳定性、收敛性、实验、回复事实和最终 PDF 必须由作者或子领域专家显式签核。
-- 候选修改必须先供人工审阅，绝不会被静默应用。
-- 实验必须显式授权；其输出是待确认的证据，而不是自动成立的科学结论。
-- 远程 provider 默认关闭。启用后也需要针对任务、用途和材料类别的一次性限时授权。
-- 本地 cockpit、验证、溯源和 readiness 报告会显式显示缺失、过期、豁免与升级事项。
+RevAgent 不会认证证明、稳定性、收敛性、实验、回复事实或最终 PDF；这些决定必须由作者或子领域专家签核。候选修改必须先供人工审阅，绝不会被静默应用。
 
-完整的隐私与执行边界见 [SECURITY.md](SECURITY.md)。
+## 更多内容
 
-## 社区校准
-
-仓库只包含合成 fixtures。若你希望准备一个自愿贡献的案例，先生成数据卡模板，再导出一个**仅本地的元数据候选包**：
-
-```powershell
-revagent contribution-template --case-id community-001
-revagent contribution-export --case-dir C:\path\to\deidentified_case --case-id community-001 --data-card C:\path\to\data_card.json --confirm
-```
-
-该导出包只包含数据卡、安全扫描和文件指纹；绝不复制论文原文、审稿意见、代码或数据。RevAgent 不验证脱敏或发表权利，任何分享仍需人工治理审核。
-
-## 开发与发布状态
-
-```powershell
-python -m pytest
-```
-
-CI 覆盖 Windows、Linux 和 macOS。发布资产附带校验和、SPDX SBOM 和 GitHub 构建证明。v0.1.0 的限制与验证方法见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
-
-更多内容：[贡献指南](CONTRIBUTING.md)、[安全政策](SECURITY.md) 和 [变更日志](CHANGELOG.md)。
+单项审阅命令、本地浏览器界面、社区校准、开发和发布验证见[高级用法](docs/advanced-usage.md)。隐私与执行边界见[安全政策](SECURITY.md)，项目协作见[贡献指南](CONTRIBUTING.md)，版本限制见[发布说明](RELEASE_NOTES.md)。

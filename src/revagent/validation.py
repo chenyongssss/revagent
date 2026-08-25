@@ -33,6 +33,44 @@ def read_jsonl_like(path: Path) -> list[dict[str, object]]:
     return records
 
 
+def comment_import_issues(base: Path, workspace: Path) -> list[str]:
+    path = workspace / "comment_import.json"
+    try:
+        record = read_json(path, {})
+    except json.JSONDecodeError as exc:
+        return [f"invalid JSON in comment_import.json: {exc}"]
+    if not isinstance(record, dict):
+        return ["comment_import.json must be an object"]
+    if record.get("status") == "not_imported":
+        return []
+    required = ("source_path", "source_hash", "normalized_path", "normalized_hash", "format", "conversion", "imported_at")
+    missing = [field for field in required if not record.get(field)]
+    if missing:
+        return [f"comment_import.json missing fields: {', '.join(missing)}"]
+    try:
+        source = (base / str(record["source_path"])).resolve()
+        normalized = (base / str(record["normalized_path"])).resolve()
+        source.relative_to(base.resolve())
+        normalized.relative_to(base.resolve())
+    except (ValueError, OSError):
+        return ["comment_import.json contains a path outside the local project"]
+    issues: list[str] = []
+    if not source.is_file():
+        issues.append(f"imported reviewer comment source is missing: {record['source_path']}")
+    elif file_sha256(source) != record["source_hash"]:
+        issues.append(f"imported reviewer comment source hash drift: {record['source_path']}")
+    if not normalized.is_file():
+        issues.append(f"normalized reviewer comments are missing: {record['normalized_path']}")
+    elif file_sha256(normalized) != record["normalized_hash"]:
+        issues.append(f"normalized reviewer comment hash drift: {record['normalized_path']}")
+    if str(record.get("conversion")) != "direct":
+        try:
+            normalized.relative_to(workspace / "imports")
+        except ValueError:
+            issues.append("normalized reviewer comments must be stored under .revagent/imports")
+    return issues
+
+
 def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, object]:
     config = load_config(base)
     issues: list[str] = []
@@ -40,6 +78,7 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
     for name in SCHEMA_FILES:
         if not (config.workspace / name).exists():
             issues.append(f"missing workspace file: {name}")
+    issues.extend(comment_import_issues(base, config.workspace))
     # The cycle database is an append-only evidence ledger.  Its failures are
     # hard errors, never advisory warnings, because a dry run must fail closed.
     from .project_runtime import cycle_integrity_issues

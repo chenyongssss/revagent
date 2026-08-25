@@ -122,6 +122,7 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     )
     write_json(ws / "journal_profile.json", profile)
     write_json(ws / "review_items.json", [])
+    write_json(ws / "comment_import.json", {"version": 1, "status": "not_imported"})
     write_json(ws / "latex_index.json", latex_index(tex_root, main))
     write_json(ws / "item_plans.json", {})
     write_text(ws / "item_plans.md", "# Item Plans\n\n")
@@ -227,6 +228,7 @@ def schema_markdown() -> str:
             "",
             "- `revision.yaml`: journal, TeX root, main TeX file, compile command, schema version.",
             "- `review_items.json`: reviewer items with lane, risk, severity, source, reviewer, locations, and lane payloads.",
+            "- `comment_import.json`: source and normalized-comment hashes, local conversion metadata, and import timestamp.",
             "- `latex_index.json`: reachable files, includes, sections, labels, refs, environments, and dependency map.",
             "- `item_plans.json`: structured per-item planning records keyed by review item id.",
             "- `item_plans.md`: reviewable markdown rendering of per-item plans.",
@@ -312,6 +314,7 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
             changed = True
 
     default_files = {
+        "comment_import.json": {"version": 1, "status": "not_imported"},
         "candidate_edits.json": [],
         "item_plans.json": {},
         "item_plans.md": "# Item Plans\n\n",

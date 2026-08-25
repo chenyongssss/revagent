@@ -9,11 +9,13 @@ from xml.etree import ElementTree
 from pathlib import Path
 from typing import Iterable
 
-from ._utils import first_sentence, load_config, load_items, now_iso, read_json, read_text, write_items, write_json, write_text
+from ._utils import file_sha256, first_sentence, load_config, load_items, now_iso, read_json, read_text, write_items, write_json, write_text
 from .profiles import load_profile
 
 _REVIEWER_MARKER = re.compile(r"^(?:#+\s*)?(reviewer|referee|editor)\s*([0-9A-Za-z-]*)\s*[:.]?\s*$", re.I)
 _LIST_MARKER = re.compile(r"^(?:[-*]|\d+[.)]|\\item(?:\[[^]]+\])?)\s*(.*)$")
+_DIRECT_COMMENT_SUFFIXES = {".tex", ".md", ".txt"}
+_NORMALIZED_COMMENT_SUFFIXES = {".docx", ".pdf"}
 
 
 def _docx_text(path: Path) -> str:
@@ -36,6 +38,8 @@ def _pdf_text(path: Path) -> str:
         raise ValueError(f"cannot extract local PDF reviewer comments: {exc}") from exc
     if result.returncode != 0:
         raise ValueError(f"cannot extract local PDF reviewer comments: {result.stderr.strip() or 'pdftotext failed'}")
+    if not result.stdout.strip():
+        raise ValueError("cannot extract local PDF reviewer comments: no extractable text found")
     return result.stdout
 
 
@@ -46,6 +50,42 @@ def read_review_comments(path: Path) -> str:
     if suffix == ".pdf":
         return _pdf_text(path)
     return read_text(path)
+
+
+def normalize_review_comments(base: Path, source_path: Path, workspace: Path) -> tuple[str, dict[str, object]]:
+    """Return locally normalized comment text and record an auditable import."""
+    suffix = source_path.suffix.casefold()
+    if suffix not in _DIRECT_COMMENT_SUFFIXES | _NORMALIZED_COMMENT_SUFFIXES:
+        raise ValueError("unsupported reviewer comment format; use .tex, .md, .txt, .docx, or a text-based .pdf")
+    source_hash = file_sha256(source_path)
+    source_relative = source_path.relative_to(base.resolve()).as_posix()
+    if suffix in _DIRECT_COMMENT_SUFFIXES:
+        normalized_relative = source_relative
+        normalized_path = source_path
+        conversion = "direct"
+        text = read_text(source_path)
+    else:
+        text = read_review_comments(source_path)
+        imports = workspace / "imports"
+        imports.mkdir(parents=True, exist_ok=True)
+        safe_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", source_path.stem).strip("._") or "reviewer_comments"
+        normalized_path = imports / f"{safe_stem}-{source_hash[:12]}.md"
+        write_text(normalized_path, text)
+        normalized_relative = normalized_path.relative_to(base.resolve()).as_posix()
+        conversion = f"{suffix[1:]}_to_markdown"
+    record = {
+        "version": 1,
+        "status": "imported",
+        "source_path": source_relative,
+        "source_hash": source_hash,
+        "normalized_path": normalized_relative,
+        "normalized_hash": file_sha256(normalized_path),
+        "format": suffix[1:],
+        "conversion": conversion,
+        "imported_at": now_iso(),
+    }
+    write_json(workspace / "comment_import.json", record)
+    return text, record
 
 
 def parse_review_requests(text: str) -> list[dict[str, str]]:
@@ -150,7 +190,7 @@ def ingest_comments(base: Path, comments_path: str) -> int:
     source_path = (base / comments_path).resolve()
     if base.resolve() not in source_path.parents or not source_path.is_file():
         raise ValueError("reviewer comments must be an existing file inside the local project")
-    raw = read_review_comments(source_path)
+    raw, comment_import = normalize_review_comments(base, source_path, config.workspace)
     chunks = parse_review_requests(raw)
     items = []
     for index, request in enumerate(chunks, start=1):
@@ -164,8 +204,11 @@ def ingest_comments(base: Path, comments_path: str) -> int:
                 "severity": risk_for(kind, chunk),
                 "requires_author_input": kind in {"proof", "experiment"},
                 "evidence_required": kind in {"proof", "experiment"},
-                "source": comments_path,
-                "source_locator": f"{comments_path}:{request['line_start']}-{request['line_end']}",
+                "source": str(comment_import["source_path"]),
+                "source_locator": f"{comment_import['normalized_path']}:{request['line_start']}-{request['line_end']}",
+                "normalized_source": str(comment_import["normalized_path"]),
+                "source_hash": str(comment_import["source_hash"]),
+                "normalized_hash": str(comment_import["normalized_hash"]),
                 "reviewer": request["reviewer"] if request["reviewer"] != "Unassigned reviewer" else infer_reviewer(chunk, index),
                 "status": "triaged",
                 "planning_status": "triaged",
