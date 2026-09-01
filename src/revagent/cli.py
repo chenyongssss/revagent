@@ -78,7 +78,7 @@ from .paper_ingestion import build_paper_manifest, render_paper_manifest
 from .pre_submission_engine import ROLES, authorize_followup, merge_role_reports, run_review_round, run_role_review
 from .reviewer_packs import available_reviewer_packs
 from .rebuttal import approve_rebuttal_atom, finalize_rebuttal, parse_rebuttal, rebuttal_draft, rebuttal_plan, rebuttal_stress_test, resubmit_rebuttal
-from .literature import PROVIDERS, authorize_literature_provider, authorize_literature_query, cache_literature_query, fetch_openalex, literature_provenance_report, literature_status
+from .literature import FETCH_PROVIDERS, PROVIDERS, authorize_literature_provider, authorize_literature_query, cache_literature_query, fetch_literature_provider, fetch_openalex, literature_provenance_report, literature_status
 from .history import approve_history, import_history
 from .validation import doctor, validate_workspace
 from .external_agent import (
@@ -213,6 +213,11 @@ def build_parser() -> argparse.ArgumentParser:
     literature_fetch.add_argument("--query", required=True)
     literature_fetch.add_argument("--authorization-id", required=True)
     literature_fetch.add_argument("--offline", action="store_true")
+    literature_fetch_any = literature_sub.add_parser("fetch", help="Fetch metadata using a consent-gated provider connector.")
+    literature_fetch_any.add_argument("provider", choices=FETCH_PROVIDERS)
+    literature_fetch_any.add_argument("--query", required=True)
+    literature_fetch_any.add_argument("--authorization-id", required=True)
+    literature_fetch_any.add_argument("--offline", action="store_true")
     history = sub.add_parser("history", help="Manage local, consent-gated revision-history metadata.")
     history_sub = history.add_subparsers(dest="history_command", required=True)
     history_import = history_sub.add_parser("import")
@@ -804,7 +809,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "literature":
         if args.literature_command == "authorize":
             record = authorize_literature_provider(base, args.provider, args.purpose)
-            print(f"Recorded local-only consent for {record['provider']}; network remains disabled")
+            print(f"Recorded provider consent for {record['provider']}; no request was sent and each remote query still requires one-use authorization")
             return 0
         if args.literature_command == "report":
             report = literature_provenance_report(base)
@@ -824,6 +829,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"error: {exc}")
                 return 1
             print("Cached OpenAlex response")
+            return 0
+        if args.literature_command == "fetch":
+            try:
+                record = fetch_literature_provider(base, args.provider, args.query, args.authorization_id, args.offline)
+            except (ValueError, OSError, json.JSONDecodeError) as exc:
+                print(f"error: {exc}")
+                return 1
+            print(f"Cached {record['provider']} metadata with {len(record['normalized_records'])} normalized records")
             return 0
         try:
             response = json.loads(Path(args.response_file).read_text(encoding="utf-8"))

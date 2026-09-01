@@ -24,7 +24,7 @@ based on checked-in code and the current working tree, not on planned names:
 | 3. Pre-submission Review Engine | Prototype | Deterministic role-scoped text/theory/experiment reports, current-input isolation, merging, bounded standard/hard/nightmare rounds, author-gated follow-ups, a risk matrix, and advisory outputs exist. They are structural roles rather than independently validated semantic or cross-model reviewers; conflict resolution, real meta-review, budgets, and adversarial evaluation remain incomplete. |
 | 4. Computational-mathematics reviewer packs | Prototype with evaluation harness | Eight versioned guidance packs define claim types, assumptions, evidence expectations, objections, and stress tests. `benchmark-review-suite` now requires adjudicated labels from at least two pseudonymous annotators, rejects model self-scores, binds input hashes and pack/engine versions, and measures defect recall, high-risk recall, and false-pass rate globally/by role/by pack. Real independently labelled domain cases and published calibration results remain missing. |
 | 5. Rebuttal/resubmit loop | Advanced partial | Atomized parse/plan/draft/stress-test/finalize commands, author-written response binding, explicit atom approval, traceability fields, PASTE_READY regeneration, deterministic placeholder/future-commitment/tone-pattern lint, optional rulepack word limits, stress-report hashing, and isolated journal-to-journal resubmission records exist. Phrase lint is intentionally conservative and not factual verification; richer output, more complete comment atomization, and calibrated tone/commitment policies remain incomplete. |
-| 6. Literature and external providers | Early partial | Provider and per-query consent ledgers, reproducible local cache records, provenance reports, privacy gating, offline behavior, and an OpenAlex adapter exist. Crossref, arXiv, Semantic Scholar, DOI/retraction adapters, citation graphs, claim alignment, and novelty-risk analysis remain missing. |
+| 6. Literature and external providers | Advanced partial | Provider and one-use per-query consent, pre-network privacy gates, OpenAlex/Crossref/arXiv/DOI metadata connectors, canonical response hashes, normalized records, and final-report permission filtering exist. Semantic Scholar and retraction adapters, citation graphs, claim alignment, and novelty-risk analysis remain missing. |
 | 7. Personal revision memory and local RAG | Minimal foundation | History import currently records only hashes, purpose, consent, and approval without storing raw content. Redaction preview, retention/deletion/export, searchable local indexing, rebuild, and retrieval controls do not exist. |
 | 8. General research project and local deployment | Partial foundation | SQLite runtime, local dashboard, worker/provider integrations, and durable revision memory exist. General research project/family/evolve workflows and the prescribed project layout do not. |
 | 9. Quality, privacy, and release gate | Partial | Synthetic benchmarks, privacy scanning, contribution data cards, independent-expert templates, and a fail-closed adjudicated reviewer-pack metric runner exist. Real calibrated multi-expert case sets and release gates per model/profile/pack remain missing. |
@@ -42,9 +42,9 @@ acceptance criteria by themselves.
    overflow/font/graphics inspection.
 3. Collect and adjudicate real domain-expert evaluation cases with the new
    reviewer-pack harness before expanding autonomy or claiming calibration.
-4. Add consent-gated Crossref/arXiv/DOI metadata providers and reproducible
-   normalized records now that ingestion, evaluation, and rebuttal linting
-   foundations are stable.
+4. Extend the consent-gated metadata baseline with retraction status and a
+   provenance-preserving citation graph before attempting claim alignment or
+   novelty-risk analysis.
 5. Defer searchable personal RAG until redaction, consent, retention, deletion,
    export, and rebuild semantics are specified and tested.
 

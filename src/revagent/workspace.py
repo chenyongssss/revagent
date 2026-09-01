@@ -304,7 +304,7 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     write_text(ws / "rebuttal_stress_test.md", "# Rebuttal Stress Test\n\nNo rebuttal stress test run yet.\n")
     write_json(ws / "rebuttal_final.json", {"version": 2, "status": "not_finalized"})
     write_json(ws / "literature_consent.json", {"version": 1, "authorizations": []})
-    write_json(ws / "literature_report.json", {"version": 1, "availability": "not_generated"})
+    write_json(ws / "literature_report.json", {"version": 2, "availability": "not_generated", "retrieved_metadata": [], "excluded_local_only_records": 0})
     write_json(ws / "literature_query_authorizations.json", {"version": 1, "authorizations": []})
     write_json(ws / "history_registry.json", {"version": 1, "records": []})
     write_json(ws / "review_benchmark_report.json", {"version": 1, "status": "not_run"})
@@ -527,7 +527,7 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "rebuttal_stress_test.md": "# Rebuttal Stress Test\n\nNo rebuttal stress test run yet.\n",
         "rebuttal_final.json": {"version": 2, "status": "not_finalized"},
         "literature_consent.json": {"version": 1, "authorizations": []},
-        "literature_report.json": {"version": 1, "availability": "not_generated"},
+        "literature_report.json": {"version": 2, "availability": "not_generated", "retrieved_metadata": [], "excluded_local_only_records": 0},
         "literature_query_authorizations.json": {"version": 1, "authorizations": []},
         "history_registry.json": {"version": 1, "records": []},
         "review_benchmark_report.json": {"version": 1, "status": "not_run"},
@@ -555,6 +555,17 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
                 else:
                     write_text(target, str(default_value))
                 changed = True
+
+    literature_report_path = config.workspace / "literature_report.json"
+    literature_report = read_json(literature_report_path, {})
+    if literature_report.get("version") != 2:
+        actions.append("upgrade literature_report.json to version 2")
+        if not dry_run:
+            literature_report["version"] = 2
+            literature_report.setdefault("retrieved_metadata", [])
+            literature_report.setdefault("excluded_local_only_records", 0)
+            write_json(literature_report_path, literature_report)
+            changed = True
 
     llm_drafts_path = config.workspace / "llm_drafts.json"
     llm_drafts = read_json(llm_drafts_path, {})

@@ -58,6 +58,26 @@ rulepacks may define positive integer `max_words` and
 that no verified limit is applied. These deterministic matches require author
 interpretation and never verify facts, experiments, or mathematical claims.
 
+## Consent-gated literature metadata
+
+OpenAlex, Crossref, arXiv, and DOI content-negotiation connectors retrieve
+metadata only. Each request requires both provider consent and a matching,
+unused per-query authorization; remote requests also require a passing privacy
+scan. For example:
+
+```powershell
+revagent literature authorize crossref --purpose "related-work metadata"
+revagent literature authorize-query crossref --query "finite element estimator" --purpose "related-work metadata" --final-report-permission
+revagent literature fetch crossref --query "finite element estimator" --authorization-id LQ-001
+revagent literature report
+```
+
+Cache records retain the endpoint, content type, canonical response hash, raw
+provider response, normalized metadata, and authorization link. Records without
+`--final-report-permission` remain local and are excluded from the provenance
+report. Retrieved metadata is not evidence of novelty, priority, correctness,
+or journal suitability.
+
 ## Local journal rulepacks
 
 RevAgent prefers a project-local directory rulepack at
