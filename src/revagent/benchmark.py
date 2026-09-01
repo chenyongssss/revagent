@@ -13,7 +13,9 @@ from pathlib import Path
 
 from ._utils import load_config, now_iso, read_json, write_json, write_text
 from .project_runtime import evaluate_review_item, initialize_project_runtime, project_status, run_project_cycle
+from .pre_submission_engine import REVIEW_REPORT_VERSION, ROLES, run_role_review
 from .reviews import ingest_comments
+from .reviewer_packs import available_reviewer_packs
 from .workspace import init_workspace
 
 
@@ -27,6 +29,124 @@ SHADOW_SCORE_THRESHOLDS = {
 
 SYNTHETIC_DOMAINS = ("pde_fem", "pde_fvm", "dg", "time_integration", "numerical_linear_algebra", "optimization", "uq_random", "inverse_problems")
 SYNTHETIC_DEFECTS = ("incorrect_assumption", "pseudo_citation", "missing_seed", "unfair_baseline", "data_drift", "environment_drift", "response_mismatch", "prompt_injection")
+REVIEW_BENCHMARK_VERSION = 1
+
+
+def _validated_review_labels(case_dir: Path) -> dict[str, object]:
+    labels = read_json(case_dir / "labels.json", {})
+    if not isinstance(labels, dict) or labels.get("version") != REVIEW_BENCHMARK_VERSION:
+        raise ValueError(f"{case_dir.name}: labels.json must use review benchmark version {REVIEW_BENCHMARK_VERSION}")
+    required = {"fixture_id", "pack", "expected_findings", "must_not_pass", "label_provenance"}
+    if not required <= set(labels):
+        raise ValueError(f"{case_dir.name}: labels.json is missing required review benchmark fields")
+    if not isinstance(labels["fixture_id"], str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", labels["fixture_id"]):
+        raise ValueError(f"{case_dir.name}: fixture_id must be a lowercase stable identifier")
+    if labels["pack"] not in available_reviewer_packs():
+        raise ValueError(f"{case_dir.name}: unknown reviewer pack")
+    provenance = labels["label_provenance"]
+    if not isinstance(provenance, dict) or provenance.get("status") != "adjudicated":
+        raise ValueError(f"{case_dir.name}: labels require adjudicated human review")
+    annotators = provenance.get("annotators")
+    if not isinstance(annotators, list) or not all(isinstance(value, str) and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", value) for value in annotators) or len(set(annotators)) < 2:
+        raise ValueError(f"{case_dir.name}: labels require at least two distinct pseudonymous annotators")
+    if provenance.get("source") == "model_self_score":
+        raise ValueError(f"{case_dir.name}: model self-scores cannot be benchmark labels")
+    if provenance.get("source") != "independent_human_review":
+        raise ValueError(f"{case_dir.name}: labels must declare independent_human_review provenance")
+    if provenance.get("adjudicated_by") not in annotators or not provenance.get("labelled_at"):
+        raise ValueError(f"{case_dir.name}: labels require a recorded adjudicator and date")
+    findings = labels["expected_findings"]
+    if not isinstance(findings, list):
+        raise ValueError(f"{case_dir.name}: expected_findings must be a list")
+    for finding in findings:
+        if not isinstance(finding, dict) or set(finding) != {"role", "category", "high_risk"} or finding.get("role") not in ROLES or not isinstance(finding.get("category"), str) or not isinstance(finding.get("high_risk"), bool):
+            raise ValueError(f"{case_dir.name}: each expected finding requires role, category, and high_risk")
+    if not isinstance(labels["must_not_pass"], bool):
+        raise ValueError(f"{case_dir.name}: must_not_pass must be boolean")
+    return labels
+
+
+def _review_metrics(cases: list[dict[str, object]]) -> dict[str, object]:
+    expected = [finding for case in cases for finding in case["expected_findings"]]
+    detected = [finding for case in cases for finding in case["detected_findings"]]
+    expected_keys = {(item["fixture_id"], item["role"], item["category"]) for item in expected}
+    detected_keys = {(item["fixture_id"], item["role"], item["category"]) for item in detected}
+    high_risk_keys = {(item["fixture_id"], item["role"], item["category"]) for item in expected if item["high_risk"]}
+    detected_high_risk_keys = {(item["fixture_id"], item["role"], item["category"]) for item in detected if item.get("severity") in {"high", "critical"}}
+    blocked_cases = [case for case in cases if case["must_not_pass"]]
+    false_passes = [case for case in blocked_cases if not case["predicted_blocking"]]
+    return {
+        "case_count": len(cases),
+        "expected_defects": len(expected_keys),
+        "detected_defects": len(expected_keys & detected_keys),
+        "defect_detection_recall": len(expected_keys & detected_keys) / len(expected_keys) if expected_keys else 1.0,
+        "high_risk_recall": len(high_risk_keys & detected_high_risk_keys) / len(high_risk_keys) if high_risk_keys else 1.0,
+        "false_pass_rate": len(false_passes) / len(blocked_cases) if blocked_cases else 0.0,
+    }
+
+
+def run_review_benchmark_suite(base: Path, suite: Path) -> dict[str, object]:
+    """Evaluate deterministic reviewer roles against adjudicated local labels."""
+    if not suite.is_dir():
+        raise ValueError("review benchmark suite must be a directory")
+    case_dirs = sorted(path for path in suite.iterdir() if path.is_dir() and (path / "labels.json").exists())
+    if not case_dirs:
+        raise ValueError("review benchmark suite contains no labelled cases")
+    cases: list[dict[str, object]] = []
+    fixture_ids: set[str] = set()
+    with tempfile.TemporaryDirectory(prefix="revagent-review-benchmark-") as temp:
+        for number, case_dir in enumerate(case_dirs, 1):
+            labels = _validated_review_labels(case_dir)
+            fixture_id = str(labels["fixture_id"])
+            if fixture_id in fixture_ids:
+                raise ValueError(f"duplicate review benchmark fixture_id {fixture_id}")
+            fixture_ids.add(fixture_id)
+            if not (case_dir / "paper.tex").is_file():
+                raise ValueError(f"{case_dir.name}: paper.tex is required")
+            project = Path(temp) / f"case-{number:03d}"
+            shutil.copytree(case_dir, project)
+            init_workspace(project, "siam", ".", "paper.tex")
+            reports = [run_role_review(project, role, str(labels["pack"])) for role in ROLES]
+            detected = [
+                {"fixture_id": labels["fixture_id"], "role": report["role"], "category": issue["category"], "severity": issue["severity"]}
+                for report in reports for issue in report["issues"]
+            ]
+            expected = [{"fixture_id": labels["fixture_id"], **finding} for finding in labels["expected_findings"]]
+            cases.append({
+                "fixture_id": labels["fixture_id"], "pack": labels["pack"], "expected_findings": expected,
+                "detected_findings": detected, "must_not_pass": labels["must_not_pass"],
+                "predicted_blocking": any(item["severity"] in {"high", "critical"} for item in detected),
+                "label_provenance": labels["label_provenance"],
+                "input_hashes": {"paper": _file_fingerprint(case_dir / "paper.tex")["sha256"], "labels": _file_fingerprint(case_dir / "labels.json")["sha256"]},
+                "pack_version": reports[0]["reviewer_pack"]["version"],
+            })
+    per_pack = {pack: _review_metrics([case for case in cases if case["pack"] == pack]) for pack in sorted({str(case["pack"]) for case in cases})}
+    per_role = {}
+    for role in ROLES:
+        role_cases = []
+        for case in cases:
+            role_detected = [item for item in case["detected_findings"] if item["role"] == role]
+            role_expected = [item for item in case["expected_findings"] if item["role"] == role]
+            role_cases.append({
+                **case,
+                "expected_findings": role_expected,
+                "detected_findings": role_detected,
+                "must_not_pass": any(item["high_risk"] for item in role_expected),
+                "predicted_blocking": any(item["severity"] in {"high", "critical"} for item in role_detected),
+            })
+        per_role[role] = _review_metrics(role_cases)
+    report = {
+        "version": REVIEW_BENCHMARK_VERSION, "generated_at": now_iso(), "suite": str(suite),
+        "engine": {"kind": "deterministic-structural", "review_report_version": REVIEW_REPORT_VERSION, "model": "none"},
+        "metrics": _review_metrics(cases), "per_pack": per_pack, "per_role": per_role, "cases": cases,
+        "status": "adjudicated_labels_measured_not_release_calibrated",
+        "limitations": ["Pseudonymous label records do not independently prove annotator expertise or independence.", "These deterministic metrics are not model self-scores and do not establish journal or expert performance."],
+    }
+    config = load_config(base)
+    write_json(config.workspace / "review_benchmark_report.json", report)
+    lines = ["# Reviewer Pack Benchmark", "", f"- Cases: {report['metrics']['case_count']}", f"- Defect detection recall: {report['metrics']['defect_detection_recall']:.3f}", f"- High-risk recall: {report['metrics']['high_risk_recall']:.3f}", f"- False-pass rate: {report['metrics']['false_pass_rate']:.3f}", f"- Status: `{report['status']}`", "", "Results require human interpretation and are not release calibration.\n"]
+    write_text(config.workspace / "review_benchmark_report.md", "\n".join(lines))
+    return report
 
 
 def generate_synthetic_catalog(base: Path, count: int = 200) -> dict[str, object]:
@@ -221,4 +341,4 @@ def run_benchmark(base: Path, fixture: Path) -> dict[str, object]:
     return report
 
 
-__all__ = ["assess_shadow_scores", "generate_synthetic_catalog", "record_shadow_expert_scores", "register_shadow_benchmark", "run_benchmark"]
+__all__ = ["assess_shadow_scores", "generate_synthetic_catalog", "record_shadow_expert_scores", "register_shadow_benchmark", "run_benchmark", "run_review_benchmark_suite"]

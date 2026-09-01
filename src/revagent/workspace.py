@@ -306,6 +306,8 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     write_json(ws / "literature_report.json", {"version": 1, "availability": "not_generated"})
     write_json(ws / "literature_query_authorizations.json", {"version": 1, "authorizations": []})
     write_json(ws / "history_registry.json", {"version": 1, "records": []})
+    write_json(ws / "review_benchmark_report.json", {"version": 1, "status": "not_run"})
+    write_text(ws / "review_benchmark_report.md", "# Reviewer Pack Benchmark\n\nNo adjudicated review benchmark run yet.\n")
     write_json(ws / "artifact_registry.json", artifact_registry_document(ws))
     return ws
 
@@ -380,6 +382,7 @@ def schema_markdown() -> str:
             "- `review_engine.json`: bounded review-round policy and author-pause history.",
             "- `review_followups.json` / `review_followups.md`: bounded high-risk verification tasks, author-gated and never auto-executed.",
             "- `review_outputs.json` / `review_outputs.md`: advisory editor summary, reviewer report, and author action list.",
+            "- `review_benchmark_report.json` / `review_benchmark_report.md`: deterministic role/pack metrics against locally adjudicated labels; never model self-scores or release calibration by themselves.",
             "- `artifact_registry.json`: generated registry of persisted JSON/YAML artifact formats, versions, hashes, ownership, migration path, and compatibility policy.",
             "- `candidate_edits.json`: proposed/edited/approved/rejected/blocked/applied manuscript edits with safe patch operations.",
             "- `decision_log.md`: append-only rationale log for item reasoning and author decisions.",
@@ -524,6 +527,8 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "literature_report.json": {"version": 1, "availability": "not_generated"},
         "literature_query_authorizations.json": {"version": 1, "authorizations": []},
         "history_registry.json": {"version": 1, "records": []},
+        "review_benchmark_report.json": {"version": 1, "status": "not_run"},
+        "review_benchmark_report.md": "# Reviewer Pack Benchmark\n\nNo adjudicated review benchmark run yet.\n",
         "decision_log.md": "# Decision Log\n\n",
         "latex_index.json": latex_index(config.tex_root, config.main_tex),
         "proof_audit.md": "# Proof Audit\n\n",
@@ -810,6 +815,8 @@ def export_artifacts(base: Path) -> Path:
         "review_followups.md",
         "review_outputs.json",
         "review_outputs.md",
+        "review_benchmark_report.json",
+        "review_benchmark_report.md",
         "artifact_registry.json",
         "revision_plan.md",
         "response_letter.md",

@@ -4,3 +4,6 @@
 tests. Never add reviewer correspondence, private manuscripts, credentials, raw
 model transcripts, or destructive commands. Licensed, deidentified real cases
 must be distributed separately with a data card and permission record.
+
+`reviewer-packs/` documents the adjudicated label schema and the local
+role/pack metric runner. It does not contain or imply real expert calibration.

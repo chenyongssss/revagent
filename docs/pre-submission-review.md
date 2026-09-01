@@ -37,6 +37,16 @@ page may contain graphics or inaccessible text and is only a prompt for manual
 inspection. Neither structural proof binding nor a source-to-page mapping
 establishes semantic correctness.
 
+## Reviewer-pack evaluation
+
+`revagent benchmark-review-suite --suite PATH` measures deterministic reviewer
+roles against local adjudicated labels. Each case must record at least two
+distinct pseudonymous annotators and an adjudicator; model self-scores are
+rejected. Reports include exact paper/label hashes and compute defect recall,
+high-risk recall, and false-pass rate globally, by role, and by reviewer pack.
+The records do not prove annotator expertise or independence and are not a
+release calibration without the documented human protocol.
+
 ## Local journal rulepacks
 
 RevAgent prefers a project-local directory rulepack at
