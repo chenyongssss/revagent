@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from revagent.cli import main
-from revagent.literature import authorize_literature_provider, authorize_literature_query, fetch_literature_provider, normalize_provider_response
+from revagent.literature import authorize_literature_provider, authorize_literature_query, build_citation_graph, build_retraction_report, cache_literature_query, fetch_literature_provider, normalize_provider_response
 from revagent.workspace import init_workspace, migrate_workspace
 
 
@@ -85,3 +85,41 @@ def test_migration_upgrades_literature_report_without_losing_records(tmp_path: P
     report = json.loads(path.read_text(encoding="utf-8"))
     assert report["version"] == 2
     assert report["retrieved_metadata"] == [{"query": "kept"}]
+
+
+def test_citation_graph_and_retraction_report_preserve_provenance(tmp_path: Path) -> None:
+    _workspace(tmp_path)
+    authorize_literature_provider(tmp_path, "crossref", "metadata")
+    authorization = authorize_literature_query(tmp_path, "crossref", "notice", "metadata", True)
+    response = {"message": {"items": [{
+        "DOI": "10.1000/notice",
+        "title": ["Retraction notice"],
+        "reference": [{"DOI": "10.1000/cited"}],
+        "update-to": [{"DOI": "10.1000/retracted", "type": "retraction", "source": "publisher"}],
+    }]}}
+    cached = cache_literature_query(tmp_path, "crossref", "notice", response, authorization=authorization)
+    graph = build_citation_graph(tmp_path)
+    assert {(edge["target"], edge["relation"]) for edge in graph["edges"]} == {
+        ("10.1000/cited", "cites"),
+        ("10.1000/retracted", "retraction"),
+    }
+    assert all(edge["provenance"]["response_sha256"] == cached["response_sha256"] for edge in graph["edges"])
+    report = build_retraction_report(tmp_path)
+    assert report["assertions"][0]["doi"] == "10.1000/retracted"
+    assert {item["doi"]: item["status"] for item in report["records"]}["10.1000/notice"] == "no_retraction_metadata_observed"
+    assert {item["doi"]: item["status"] for item in report["records"]}["10.1000/retracted"] == "retracted"
+
+
+def test_derived_literature_artifacts_exclude_unpermitted_cache(tmp_path: Path, monkeypatch) -> None:
+    _workspace(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    authorize_literature_provider(tmp_path, "openalex", "metadata")
+    hidden = authorize_literature_query(tmp_path, "openalex", "hidden", "metadata", False)
+    response = {"results": [{"id": "https://openalex.org/W1", "display_name": "Hidden", "referenced_works": ["https://openalex.org/W2"]}]}
+    cache_literature_query(tmp_path, "openalex", "hidden", response, authorization=hidden)
+    assert main(["literature", "graph"]) == 0
+    assert main(["literature", "retractions"]) == 0
+    graph = json.loads((tmp_path / ".revagent" / "literature_citation_graph.json").read_text(encoding="utf-8"))
+    retractions = json.loads((tmp_path / ".revagent" / "literature_retractions.json").read_text(encoding="utf-8"))
+    assert graph["nodes"] == [] and graph["edges"] == []
+    assert retractions["records"] == [] and retractions["assertions"] == []

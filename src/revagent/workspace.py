@@ -306,6 +306,8 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     write_json(ws / "literature_consent.json", {"version": 1, "authorizations": []})
     write_json(ws / "literature_report.json", {"version": 2, "availability": "not_generated", "retrieved_metadata": [], "excluded_local_only_records": 0})
     write_json(ws / "literature_query_authorizations.json", {"version": 1, "authorizations": []})
+    write_json(ws / "literature_citation_graph.json", {"version": 1, "nodes": [], "edges": []})
+    write_json(ws / "literature_retractions.json", {"version": 1, "records": [], "assertions": []})
     write_json(ws / "history_registry.json", {"version": 1, "records": []})
     write_json(ws / "review_benchmark_report.json", {"version": 1, "status": "not_run"})
     write_text(ws / "review_benchmark_report.md", "# Reviewer Pack Benchmark\n\nNo adjudicated review benchmark run yet.\n")
@@ -529,6 +531,8 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "literature_consent.json": {"version": 1, "authorizations": []},
         "literature_report.json": {"version": 2, "availability": "not_generated", "retrieved_metadata": [], "excluded_local_only_records": 0},
         "literature_query_authorizations.json": {"version": 1, "authorizations": []},
+        "literature_citation_graph.json": {"version": 1, "nodes": [], "edges": []},
+        "literature_retractions.json": {"version": 1, "records": [], "assertions": []},
         "history_registry.json": {"version": 1, "records": []},
         "review_benchmark_report.json": {"version": 1, "status": "not_run"},
         "review_benchmark_report.md": "# Reviewer Pack Benchmark\n\nNo adjudicated review benchmark run yet.\n",

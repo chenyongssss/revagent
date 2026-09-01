@@ -78,7 +78,7 @@ from .paper_ingestion import build_paper_manifest, render_paper_manifest
 from .pre_submission_engine import ROLES, authorize_followup, merge_role_reports, run_review_round, run_role_review
 from .reviewer_packs import available_reviewer_packs
 from .rebuttal import approve_rebuttal_atom, finalize_rebuttal, parse_rebuttal, rebuttal_draft, rebuttal_plan, rebuttal_stress_test, resubmit_rebuttal
-from .literature import FETCH_PROVIDERS, PROVIDERS, authorize_literature_provider, authorize_literature_query, cache_literature_query, fetch_literature_provider, fetch_openalex, literature_provenance_report, literature_status
+from .literature import FETCH_PROVIDERS, PROVIDERS, authorize_literature_provider, authorize_literature_query, build_citation_graph, build_retraction_report, cache_literature_query, fetch_literature_provider, fetch_openalex, literature_provenance_report, literature_status
 from .history import approve_history, import_history
 from .validation import doctor, validate_workspace
 from .external_agent import (
@@ -204,6 +204,8 @@ def build_parser() -> argparse.ArgumentParser:
     literature_cache.add_argument("--response-file", required=True, help="Local JSON response saved from an approved provider interaction.")
     literature_sub.add_parser("report")
     literature_sub.add_parser("status")
+    literature_sub.add_parser("graph", help="Build a provenance-preserving graph from permitted cached metadata.")
+    literature_sub.add_parser("retractions", help="Build a conservative retraction-status report from permitted cached metadata.")
     literature_query = literature_sub.add_parser("authorize-query")
     literature_query.add_argument("provider", choices=PROVIDERS)
     literature_query.add_argument("--query", required=True)
@@ -817,6 +819,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.literature_command == "status":
             print(json.dumps(literature_status(base), ensure_ascii=False, indent=2))
+            return 0
+        if args.literature_command == "graph":
+            graph = build_citation_graph(base)
+            print(f"Literature graph: {len(graph['nodes'])} nodes, {len(graph['edges'])} edges")
+            return 0
+        if args.literature_command == "retractions":
+            report = build_retraction_report(base)
+            print(f"Retraction metadata: {len(report['assertions'])} assertions across {len(report['records'])} works")
             return 0
         if args.literature_command == "authorize-query":
             record = authorize_literature_query(base, args.provider, args.query, args.purpose, args.final_report_permission)

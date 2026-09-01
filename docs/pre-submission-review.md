@@ -70,6 +70,8 @@ revagent literature authorize crossref --purpose "related-work metadata"
 revagent literature authorize-query crossref --query "finite element estimator" --purpose "related-work metadata" --final-report-permission
 revagent literature fetch crossref --query "finite element estimator" --authorization-id LQ-001
 revagent literature report
+revagent literature graph
+revagent literature retractions
 ```
 
 Cache records retain the endpoint, content type, canonical response hash, raw
@@ -77,6 +79,13 @@ provider response, normalized metadata, and authorization link. Records without
 `--final-report-permission` remain local and are excluded from the provenance
 report. Retrieved metadata is not evidence of novelty, priority, correctness,
 or journal suitability.
+
+The graph records each citation or provider-declared relationship together with
+the provider, query authorization, and cached response hash. Retraction status
+is derived conservatively from Crossref `update-to` and relationship metadata.
+`no_retraction_metadata_observed` means only that the permitted cached metadata
+contained no matching assertion; it never means that a work is confirmed not
+to be retracted.
 
 ## Local journal rulepacks
 

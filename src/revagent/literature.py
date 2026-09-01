@@ -52,6 +52,17 @@ def _authors(items: object) -> list[str]:
         if name.strip(): result.append(name.strip())
     return result
 
+def _crossref_relations(item: dict) -> list[dict]:
+    relations = []
+    for kind, values in item.get("relation", {}).items() if isinstance(item.get("relation"), dict) else []:
+        for value in values if isinstance(values, list) else []:
+            if isinstance(value, dict) and value.get("id"):
+                relations.append({"type": kind, "target": str(value["id"]), "target_type": value.get("id-type", "")})
+    for update in item.get("update-to", []) if isinstance(item.get("update-to"), list) else []:
+        if isinstance(update, dict) and update.get("DOI"):
+            relations.append({"type": str(update.get("type", "update")), "target": str(update["DOI"]), "target_type": "doi"})
+    return relations
+
 def normalize_provider_response(provider: str, response: object) -> list[dict]:
     if provider == "arxiv":
         xml = response.get("atom_xml", "") if isinstance(response, dict) else str(response)
@@ -76,13 +87,18 @@ def normalize_provider_response(provider: str, response: object) -> list[dict]:
             authors = [x.get("author", {}).get("display_name", "") for x in item.get("authorships", []) if isinstance(x, dict)]
             pid, doi = _first(item.get("id")), _first(item.get("doi")).removeprefix("https://doi.org/")
             published, url = _first(item.get("publication_date")), _first(item.get("doi") or item.get("id"))
+            references = [_first(value) for value in item.get("referenced_works", [])]
+            relations = []
         else:
             authors, doi = _authors(item.get("author", [])), _first(item.get("DOI"))
             pid, published = _first(item.get("DOI") or item.get("URL")), _date(item.get("published") or item.get("issued"))
             url = _first(item.get("URL")) or (f"https://doi.org/{doi}" if doi else "")
+            references = [_first(ref.get("DOI")) for ref in item.get("reference", []) if isinstance(ref, dict) and ref.get("DOI")]
+            relations = _crossref_relations(item) if provider in {"crossref", "doi-metadata"} else []
         records.append({"provider": provider, "provider_id": pid, "title": _first(item.get("title") or item.get("display_name")),
                         "authors": [x for x in authors if x], "doi": doi, "url": url, "published": published,
-                        "updated": _first(item.get("updated_date")), "type": _first(item.get("type"))})
+                        "updated": _first(item.get("updated_date")), "type": _first(item.get("type")),
+                        "reference_ids": [value for value in references if value], "relations": relations})
     return records
 
 def cache_literature_query(base, provider: str, query: str, response: object, *, authorization: dict | None = None,
@@ -114,6 +130,60 @@ def literature_provenance_report(base) -> dict:
               "availability": "available" if included else "no permitted cached provider responses",
               "limitations": ["Metadata does not establish novelty, priority, correctness, or journal suitability."]}
     write_json(ws / "literature_report.json", report)
+    return report
+
+def _permitted_cache_records(base) -> list[dict]:
+    ws = load_config(base).workspace
+    return [record for path in sorted((ws / "literature_cache").glob("*.json"))
+            if (record := read_json(path, {})).get("final_report_permission") is True]
+
+def build_citation_graph(base) -> dict:
+    ws = load_config(base).workspace
+    nodes: dict[str, dict] = {}
+    edges: list[dict] = []
+    seen_edges = set()
+    for cache in _permitted_cache_records(base):
+        provenance = {"provider": cache.get("provider", ""), "authorization_id": cache.get("authorization_id", ""),
+                      "response_sha256": cache.get("response_sha256", ""), "query_sha256": hashlib.sha256(str(cache.get("query", "")).encode()).hexdigest()}
+        for record in cache.get("normalized_records", []):
+            source = _first(record.get("doi") or record.get("provider_id"))
+            if not source: continue
+            nodes.setdefault(source, {"id": source, "title": record.get("title", ""), "doi": record.get("doi", ""), "providers": []})
+            if provenance["provider"] not in nodes[source]["providers"]: nodes[source]["providers"].append(provenance["provider"])
+            targets = [(target, "cites") for target in record.get("reference_ids", [])]
+            targets.extend((rel.get("target", ""), rel.get("type", "related")) for rel in record.get("relations", []) if isinstance(rel, dict))
+            for target, relation in targets:
+                target = _first(target)
+                key = (source, target, relation, provenance["response_sha256"])
+                if not target or key in seen_edges: continue
+                seen_edges.add(key); nodes.setdefault(target, {"id": target, "title": "", "doi": target if target.lower().startswith("10.") else "", "providers": []})
+                edges.append({"source": source, "target": target, "relation": relation, "provenance": provenance})
+    graph = {"version": 1, "generated_at": now_iso(), "nodes": sorted(nodes.values(), key=lambda x: x["id"]),
+             "edges": sorted(edges, key=lambda x: (x["source"], x["target"], x["relation"])),
+             "limitations": ["Edges reflect deposited provider metadata only; absence of an edge is not evidence that no citation or relationship exists."]}
+    write_json(ws / "literature_citation_graph.json", graph)
+    return graph
+
+def build_retraction_report(base) -> dict:
+    ws = load_config(base).workspace
+    assertions: list[dict] = []
+    checked: set[str] = set()
+    for cache in _permitted_cache_records(base):
+        provenance = {"provider": cache.get("provider", ""), "authorization_id": cache.get("authorization_id", ""), "response_sha256": cache.get("response_sha256", "")}
+        for record in cache.get("normalized_records", []):
+            doi = _first(record.get("doi"))
+            if doi: checked.add(doi)
+            for relation in record.get("relations", []):
+                if not isinstance(relation, dict): continue
+                kind, target = str(relation.get("type", "")).lower(), _first(relation.get("target"))
+                if kind in {"retraction", "is-retracted-by"} and target:
+                    retracted = doi if kind == "is-retracted-by" and doi else target
+                    assertions.append({"doi": retracted, "status": "retracted", "relation": kind, "notice_doi": doi, "provenance": provenance})
+    retracted = {item["doi"] for item in assertions}
+    report = {"version": 1, "generated_at": now_iso(), "assertions": assertions,
+              "records": [{"doi": doi, "status": "retracted" if doi in retracted else "no_retraction_metadata_observed"} for doi in sorted(checked | retracted)],
+              "limitations": ["No retraction metadata observed is not confirmation that a work is unretracted; provider coverage and deposits may be incomplete."]}
+    write_json(ws / "literature_retractions.json", report)
     return report
 
 def literature_status(base) -> dict:
