@@ -26,6 +26,17 @@ nonzero and `revagent validate` emits a warning if either input changes; rerun
 surface the same `stale` status. This tracks report provenance only and does
 not certify manuscript correctness or submission readiness.
 
+## Paper manifest and rendered observations
+
+`revagent paper-ingest` creates a versioned source/PDF manifest. For each
+theorem-like environment it records the source span, structurally adjacent
+proof environment, referenced claims or assumptions, and an optional PDF page
+reported by local SyncTeX data. When `pdfinfo` and `pdftotext` are available,
+it also records page counts and per-page extractable-text counts. A text-empty
+page may contain graphics or inaccessible text and is only a prompt for manual
+inspection. Neither structural proof binding nor a source-to-page mapping
+establishes semantic correctness.
+
 ## Local journal rulepacks
 
 RevAgent prefers a project-local directory rulepack at

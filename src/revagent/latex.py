@@ -235,6 +235,7 @@ def latex_index(tex_root: Path, main_tex: str | None = None, macro_registry: dic
                         "refs": [ref for group in env["refs"] for ref in group.split(",")],
                         "section_title": env["section_title"],
                         "nearest_claim": nearest_claim if env_type == "proof" else None,
+                        "source_span": env["source_span"],
                     }
                 )
             if env_type in registered_theorem_macros:

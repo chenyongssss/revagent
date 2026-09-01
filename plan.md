@@ -20,7 +20,7 @@ based on checked-in code and the current working tree, not on planned names:
 | --- | --- | --- |
 | 0. Specification freeze | Advanced partial | The working tree adds an artifact registry with versions, hashes, ownership, migration commands, compatibility policy, schema documentation, drift validation, and non-destructive migration coverage. It still needs a reviewed inventory proving that every core persisted JSON/YAML artifact is registered and compatible with an older real workspace. Registry content drift is refreshed explicitly with `artifact-registry`; it is not a schema migration. |
 | 1. Journal Rulepack v1 | Advanced partial | Directory rulepacks, legacy flat-profile compatibility, expiry and human-confirmation enforcement, component hashes, and `journal list/validate/init/diff` exist. Six starter directories cover SISC, SINUM, Mathematics of Computation, IMAJNA, Journal of Computational Physics, and Numerische Mathematik. Official-source review, rule completeness, and acceptance checks across all six packs remain required. |
-| 2. Paper ingestion and Claim-Evidence Graph | Partial implementation | A versioned paper manifest binds reachable LaTeX sources and an optional same-stem PDF by hash, and records structural claims, bibliography entries, duplicate DOI observations, possible undefined symbols, and figure/table references. PDF inspection remains binary and heuristic; source-to-PDF page mapping, rendered layout/OCR checks, complete theorem/proof/assumption dependencies, external DOI verification, and high-risk claim-to-evidence traceability are not complete. |
+| 2. Paper ingestion and Claim-Evidence Graph | Partial implementation | A versioned paper manifest binds reachable LaTeX sources and an optional same-stem PDF by hash; records per-claim proof/reference/assumption edges; optionally maps claim lines to PDF pages through SyncTeX; and uses local `pdfinfo`/`pdftotext` observations for page and text-empty-page inspection. These remain structural/tool observations. Rendered overflow/font/graphics inspection, semantic dependency validation, external DOI verification, experiment evidence binding, and complete high-risk traceability are not complete. |
 | 3. Pre-submission Review Engine | Prototype | Deterministic role-scoped text/theory/experiment reports, current-input isolation, merging, bounded standard/hard/nightmare rounds, author-gated follow-ups, a risk matrix, and advisory outputs exist. They are structural roles rather than independently validated semantic or cross-model reviewers; conflict resolution, real meta-review, budgets, and adversarial evaluation remain incomplete. |
 | 4. Computational-mathematics reviewer packs | Prototype | Eight versioned guidance packs define claim types, assumptions, evidence expectations, objections, and stress tests. They are not yet integrated as calibrated reviewers and have no manually labelled recall or false-pass measurements. |
 | 5. Rebuttal/resubmit loop | Advanced partial | Atomized parse/plan/draft/stress-test/finalize commands, explicit atom approval, traceability fields, placeholders, and isolated journal-to-journal resubmission records exist. Rich output, robust tone/length/commitment linting, and end-to-end acceptance coverage remain incomplete. |
@@ -37,8 +37,9 @@ acceptance criteria by themselves.
 ## Immediate Delivery Order
 
 1. Keep the reviewed Phase 0-2 baseline and full regression suite green.
-2. Complete semantic claim/evidence dependencies and rendered PDF inspection,
-   including source-to-page binding and explicit observation limitations.
+2. Extend the structural claim/evidence and source-to-page baseline with
+   semantic dependency review, experiment evidence binding, and rendered
+   overflow/font/graphics inspection.
 3. Add manually labelled evaluation cases for independent review roles and
    reviewer packs before expanding autonomy or describing them as calibrated.
 4. Complete rebuttal linting and additional consent-gated literature providers

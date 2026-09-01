@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 from ._utils import file_sha256, load_config, now_iso, read_json, write_json, write_text
@@ -28,16 +30,99 @@ def _bibliography_entries(config, index: dict[str, object]) -> dict[str, dict[st
     return entries
 
 
+def _run_local_tool(command: list[str]) -> subprocess.CompletedProcess[str] | None:
+    if shutil.which(command[0]) is None:
+        return None
+    try:
+        return subprocess.run(command, text=True, capture_output=True, check=False, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
 def _pdf_observations(pdf_path: Path) -> dict[str, object]:
     if not pdf_path.exists():
-        return {"page_count": 0, "fonts": [], "blank_page_detection": "unavailable: no bound PDF"}
+        return {"page_count": 0, "fonts": [], "rendered_inspection": {"status": "unavailable", "reason": "no bound PDF", "text_pages": [], "text_empty_pages": []}}
     data = pdf_path.read_bytes()
     fonts = sorted({item.decode("latin-1", errors="replace") for item in re.findall(rb"/BaseFont\s*/([^\s/]+)", data)})
+    page_count = len(re.findall(rb"/Type\s*/Page\b", data))
+    info = _run_local_tool(["pdfinfo", str(pdf_path)])
+    if info is not None and info.returncode == 0:
+        match = re.search(r"^Pages:\s*(\d+)\s*$", info.stdout, re.MULTILINE | re.IGNORECASE)
+        if match:
+            page_count = int(match.group(1))
+    text_pages: list[dict[str, object]] = []
+    text_empty_pages: list[int] = []
+    extractor_available = shutil.which("pdftotext") is not None
+    if extractor_available and page_count:
+        for page in range(1, page_count + 1):
+            result = _run_local_tool(["pdftotext", "-f", str(page), "-l", str(page), "-layout", str(pdf_path), "-"])
+            if result is None or result.returncode != 0:
+                continue
+            character_count = len(re.sub(r"\s+", "", result.stdout))
+            text_pages.append({"page": page, "text_character_count": character_count})
+            if character_count == 0:
+                text_empty_pages.append(page)
     return {
-        "page_count": len(re.findall(rb"/Type\s*/Page\b", data)),
+        "page_count": page_count,
         "fonts": fonts,
-        "blank_page_detection": "not assessed: binary PDF heuristics cannot establish rendered blank pages",
+        "rendered_inspection": {
+            "status": "observed" if text_pages else "unavailable",
+            "reason": "" if text_pages else "pdftotext unavailable or extraction failed",
+            "text_pages": text_pages,
+            "text_empty_pages": text_empty_pages,
+            "limitation": "A text-empty page may contain graphics or inaccessible text and is not conclusively blank.",
+        },
     }
+
+
+def _synctex_page(pdf_path: Path, tex_path: Path, line: int) -> dict[str, object]:
+    result = _run_local_tool(["synctex", "view", "-i", f"{line}:0:{tex_path}", "-o", str(pdf_path)])
+    if result is None:
+        return {"status": "unavailable", "page": 0, "reason": "synctex unavailable"}
+    if result.returncode != 0:
+        return {"status": "unavailable", "page": 0, "reason": "SyncTeX data unavailable or query failed"}
+    match = re.search(r"^Page:(\d+)\s*$", result.stdout, re.MULTILINE)
+    if not match:
+        return {"status": "unavailable", "page": 0, "reason": "SyncTeX returned no page"}
+    return {"status": "observed", "page": int(match.group(1)), "reason": "source line mapped through local SyncTeX data"}
+
+
+def _claim_evidence_graph(config, index: dict[str, object], pdf_path: Path) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    claims = [env for env in index["environments"] if env["theorem_kind"]]
+    proofs = [entry for entry in index["dependency_map"] if entry["environment"] == "proof"]
+    label_to_claim = {label: number for number, claim in enumerate(claims, 1) for label in claim["labels"]}
+    assumption_ids = {
+        number for number, claim in enumerate(claims, 1) if claim["theorem_kind"] == "assumption"
+    }
+    graph: list[dict[str, object]] = []
+    manifest_claims: list[dict[str, object]] = []
+    for number, claim in enumerate(claims, 1):
+        claim_id = f"CLM-{number:03d}"
+        bound_proofs = [
+            proof for proof in proofs
+            if (proof.get("nearest_claim") or {}).get("line") == claim["line"]
+            and (proof.get("nearest_claim") or {}).get("environment") == claim["environment"]
+            and proof["file"] == claim["file"]
+        ]
+        referenced_claim_ids = sorted({
+            f"CLM-{label_to_claim[ref]:03d}"
+            for group in claim["refs"] for ref in group.split(",")
+            if ref in label_to_claim and label_to_claim[ref] != number
+        })
+        assumption_dependencies = [item for item in referenced_claim_ids if int(item.split("-")[1]) in assumption_ids]
+        page = _synctex_page(pdf_path, config.tex_root / claim["file"], int(claim["line"])) if pdf_path.exists() else {"status": "unavailable", "page": 0, "reason": "no bound PDF"}
+        evidence_state = "proof_environment_bound" if bound_proofs else ("assumption_declaration" if claim["theorem_kind"] == "assumption" else "no_bound_proof")
+        manifest_claims.append({
+            "claim_id": claim_id, "kind": claim["theorem_kind"], "source_span": claim["source_span"],
+            "pdf_location": page, "evidence_state": evidence_state,
+            "proof_source_spans": [proof["source_span"] for proof in bound_proofs],
+            "claim_dependencies": referenced_claim_ids, "assumption_dependencies": assumption_dependencies,
+        })
+        for dependency in referenced_claim_ids:
+            graph.append({"from": claim_id, "to": dependency, "type": "assumption" if dependency in assumption_dependencies else "claim_reference", "observation": "LaTeX reference in claim environment"})
+        for proof in bound_proofs:
+            graph.append({"from": claim_id, "to": f"{proof['file']}:{proof['line']}", "type": "proof_environment", "observation": "nearest following proof environment in the same source file"})
+    return manifest_claims, graph
 
 
 def paper_structural_checks(config, index: dict[str, object], pdf: dict[str, object], bibliography: dict[str, dict[str, object]]) -> list[dict[str, object]]:
@@ -65,10 +150,6 @@ def paper_structural_checks(config, index: dict[str, object], pdf: dict[str, obj
         unused_envs = [env for env in environments if env["environment"] == kind and env["labels"] and not any(label in references for label in env["labels"])]
         if unused_envs:
             checks.append({"category": "figure_table_reference", "severity": "low", "message": f"{len(unused_envs)} {kind}(s) have labels but no indexed reference.", "locations": unused_envs})
-    theorem_envs = [env for env in environments if env["theorem_kind"]]
-    proofs = [env for env in environments if env["environment"] == "proof"]
-    if theorem_envs and not proofs:
-        checks.append({"category": "claim_evidence", "severity": "high", "message": "Indexed theorem-like claims have no indexed proof environment; author/domain-expert verification is required.", "locations": theorem_envs})
     if not pdf["exists"]:
         checks.append({"category": "pdf_binding", "severity": "medium", "message": "No same-stem compiled PDF is bound to this source snapshot.", "locations": []})
     return checks
@@ -104,6 +185,14 @@ def build_paper_manifest(base: Path) -> dict[str, object]:
         **_pdf_observations(pdf_path),
     }
     bibliography = _bibliography_entries(config, index)
+    claims, claim_evidence_graph = _claim_evidence_graph(config, index, pdf_path)
+    unsupported_claims = [claim for claim in claims if claim["evidence_state"] == "no_bound_proof"]
+    checks = paper_structural_checks(config, index, pdf, bibliography)
+    if unsupported_claims:
+        checks.append({"category": "claim_evidence", "severity": "high", "message": f"{len(unsupported_claims)} theorem-like claim(s) have no structurally bound proof environment; author/domain-expert verification is required.", "locations": [claim["source_span"] for claim in unsupported_claims]})
+    empty_pages = pdf.get("rendered_inspection", {}).get("text_empty_pages", [])
+    if empty_pages:
+        checks.append({"category": "pdf_text_empty_page", "severity": "medium", "message": f"PDF page(s) {', '.join(map(str, empty_pages))} yielded no extractable text; inspect rendering manually.", "locations": [{"page": page} for page in empty_pages]})
     manifest = {
         "version": PAPER_MANIFEST_VERSION,
         "generated_at": now_iso(),
@@ -112,10 +201,11 @@ def build_paper_manifest(base: Path) -> dict[str, object]:
         "source": {"tex_root": str(config.tex_root), "main_tex": config.main_tex, "root_file": index["root_file"], "files": source_files},
         "compiled_pdf": pdf,
         "index": {key: index[key] for key in ("sections", "environments", "citations", "bibliography", "dependency_map", "unresolved_refs", "potential_undefined_symbols", "warnings")},
-        "claims": [{"claim_id": f"CLM-{number:03d}", "kind": env["theorem_kind"], "source_span": env["source_span"], "evidence_state": "proof_environment_indexed" if any(item["environment"] == "proof" for item in index["environments"]) else "no_indexed_proof"} for number, env in enumerate((env for env in index["environments"] if env["theorem_kind"]), 1)],
+        "claims": claims,
+        "claim_evidence_graph": claim_evidence_graph,
         "bibliography_entries": bibliography,
-        "checks": paper_structural_checks(config, index, pdf, bibliography),
-        "limitations": ["This manifest records local source and rendered-file observations only.", "It does not establish theorem correctness, experiment validity, or submission readiness."],
+        "checks": checks,
+        "limitations": ["This manifest records local source and rendered-file observations only.", "Proof binding is structural proximity and LaTeX-reference analysis, not semantic proof verification.", "SyncTeX page mappings and extracted PDF text are tool observations and may be unavailable or incomplete.", "It does not establish theorem correctness, experiment validity, or submission readiness."],
     }
     write_json(config.workspace / "paper_manifest.json", manifest)
     write_text(config.workspace / "paper_manifest.md", render_paper_manifest(manifest))
@@ -134,7 +224,16 @@ def paper_manifest_is_stale(base: Path, manifest: dict | None = None) -> bool:
 def render_paper_manifest(manifest: dict) -> str:
     source = manifest.get("source", {})
     pdf = manifest.get("compiled_pdf", {})
-    lines = ["# Paper Manifest", "", f"- Status: `{manifest.get('status', 'invalid')}`", f"- Main TeX: `{source.get('main_tex', '')}`", f"- Reachable source files: {len(source.get('files', []))}", f"- Compiled PDF bound: `{str(pdf.get('exists', False)).lower()}`", f"- PDF page observations: {pdf.get('page_count', 0)}", "", "## Structural Checks", ""]
+    rendered = pdf.get("rendered_inspection", {})
+    claims = manifest.get("claims", [])
+    mapped_claims = sum(1 for claim in claims if claim.get("pdf_location", {}).get("status") == "observed")
+    lines = ["# Paper Manifest", "", f"- Status: `{manifest.get('status', 'invalid')}`", f"- Main TeX: `{source.get('main_tex', '')}`", f"- Reachable source files: {len(source.get('files', []))}", f"- Compiled PDF bound: `{str(pdf.get('exists', False)).lower()}`", f"- PDF page observations: {pdf.get('page_count', 0)}", f"- Rendered text inspection: `{rendered.get('status', 'unavailable')}`", f"- Claims mapped to PDF pages: {mapped_claims}/{len(claims)}", "", "## Claims and Evidence", ""]
+    for claim in claims:
+        page = claim.get("pdf_location", {}).get("page", 0)
+        lines.append(f"- `{claim['claim_id']}` {claim['kind']}: evidence=`{claim['evidence_state']}`, PDF page={page or 'unavailable'}")
+    if not claims:
+        lines.append("- No theorem-like claims indexed.")
+    lines.extend(["", "## Structural Checks", ""])
     lines.extend(f"- [{row['severity']}] {row['message']}" for row in manifest.get("checks", []))
     if not manifest.get("checks"):
         lines.append("- No additional deterministic structural checks were triggered.")
