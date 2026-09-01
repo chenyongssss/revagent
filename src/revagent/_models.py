@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 WORKSPACE = ".revagent"
-CURRENT_SCHEMA_VERSION = "33"
+CURRENT_SCHEMA_VERSION = "35"
 PLANNING_STATUSES = {"triaged", "planned", "drafted", "evidence_ready", "approved", "incorporated", "closed"}
 EXPERIMENT_CONTRACT_STATUSES = {"not_planned", "planned", "artifact_recorded", "incorporated"}
 SCHEMA_FILES = [
@@ -78,6 +78,29 @@ SCHEMA_FILES = [
     "revision_memory.md",
     "revision_readiness.json",
     "revision_readiness.md",
+    "pre_submission_review.json",
+    "pre_submission_review.md",
+    "paper_manifest.json",
+    "paper_manifest.md",
+    "review_reports.json",
+    "review_reports.md",
+    "review_meta_report.json",
+    "review_meta_report.md",
+    "review_engine.json",
+    "review_followups.json",
+    "review_followups.md",
+    "review_outputs.json",
+    "review_outputs.md",
+    "rebuttal_threads.json",
+    "rebuttal_threads.md",
+    "rebuttal_draft.md",
+    "rebuttal_stress_test.json",
+    "rebuttal_final.json",
+    "literature_consent.json",
+    "literature_report.json",
+    "literature_query_authorizations.json",
+    "history_registry.json",
+    "artifact_registry.json",
     "revision_plan.md",
     "response_letter.md",
     "proof_audit.md",
@@ -86,6 +109,22 @@ SCHEMA_FILES = [
     "candidate_edits.json",
     "decision_log.md",
 ]
+
+# Registry schema versions are deliberately kept separate from the payloads:
+# older append-only and list-shaped artifacts cannot safely gain a top-level
+# version field without changing their on-disk contract. The registry is the
+# compatibility authority for those legacy shapes.
+ARTIFACT_SCHEMA_VERSIONS = {
+    name: "1" for name in SCHEMA_FILES if name.endswith((".json", ".yaml"))
+}
+ARTIFACT_SCHEMA_VERSIONS.update({
+    "revision.yaml": CURRENT_SCHEMA_VERSION,
+    "review_items.json": "2",
+    "latex_index.json": "2",
+    "pre_submission_review.json": "2",
+    "paper_manifest.json": "2",
+    "artifact_registry.json": "2",
+})
 
 
 @dataclass

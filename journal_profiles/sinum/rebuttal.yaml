@@ -1,0 +1,3 @@
+version: 1
+checks:
+  - State exactly which evidence supports each response.

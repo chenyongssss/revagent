@@ -6,6 +6,7 @@ import html
 
 from ._utils import load_config, write_text
 from .project_runtime import author_decision_console
+from .pre_submission_review import pre_submission_review_summary
 from .readiness import build_revision_readiness
 from .response_trace import build_response_trace
 
@@ -16,10 +17,12 @@ _TEXT = {
         "summary": "Local evidence overview. It does not certify proofs, experiments, or submission readiness.",
         "items": "Revision items",
         "actions": "Author actions",
+        "pre_submission": "Pre-submission review",
         "none": "None.",
         "headers": ("ID", "Lane", "Risk", "Readiness", "Response", "Evidence", "PDF", "Blockers / manual actions"),
     },
     "zh": {
+        "pre_submission": "Pre-submission review",
         "title": "RevAgent 作者工作台",
         "summary": "本地证据总览；系统不判定证明、实验或投稿就绪性。",
         "items": "返修事项",
@@ -40,6 +43,7 @@ def render_author_cockpit(base, language: str = "en") -> str:
     language = _language(language)
     text = _TEXT[language]
     readiness = build_revision_readiness(base)
+    pre_submission = pre_submission_review_summary(base)
     trace = build_response_trace(base)
     cycles = author_decision_console(base)
     trace_by_item = {str(record.get("item_id", "")): record for record in trace.get("records", [])}
@@ -53,9 +57,11 @@ def render_author_cockpit(base, language: str = "en") -> str:
         values = (item.get("item_id", ""), item.get("kind", ""), item.get("risk", ""), item.get("readiness_status", ""), response, evidence, pdf, blockers)
         rows.append("<tr>" + "".join(f"<td>{html.escape(str(value))}</td>" for value in values) + "</tr>")
     pending = "<br>".join(html.escape(f"{entry['cycle_id']}: {entry['next_command']}") for entry in cycles.get("pending", [])) or text["none"]
+    counts = ", ".join(f"{key}: {value}" for key, value in sorted(pre_submission["finding_counts"].items())) or text["none"]
+    pre_submission_status = html.escape(pre_submission["status"])
     headers = "".join(f"<th>{html.escape(value)}</th>" for value in text["headers"])
     toggle = "<a href=\"?lang=en\">English</a> | <a href=\"?lang=zh\">中文</a>"
-    return """<!doctype html><html><head><meta charset=\"utf-8\"><title>""" + html.escape(text["title"]) + """</title><style>body{font-family:system-ui,sans-serif;margin:2rem;color:#18212b}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd4dc;padding:.5rem;text-align:left}th{background:#eef3f7}.warn{color:#8a3600}.language{float:right}</style></head><body>""" + f"<nav class=\"language\">{toggle}</nav><h1>{html.escape(text['title'])}</h1><p>{html.escape(text['summary'])}</p><h2>{html.escape(text['items'])}</h2><table><tr>{headers}</tr>{''.join(rows)}</table><h2>{html.escape(text['actions'])}</h2><p class=\"warn\">{pending}</p></body></html>"
+    return """<!doctype html><html><head><meta charset=\"utf-8\"><title>""" + html.escape(text["title"]) + """</title><style>body{font-family:system-ui,sans-serif;margin:2rem;color:#18212b}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd4dc;padding:.5rem;text-align:left}th{background:#eef3f7}.warn{color:#8a3600}.language{float:right}</style></head><body>""" + f"<nav class=\"language\">{toggle}</nav><h1>{html.escape(text['title'])}</h1><p>{html.escape(text['summary'])}</p><h2>{html.escape(text['pre_submission'])}</h2><p>Status: <strong>{pre_submission_status}</strong><br>Findings: {html.escape(counts)}</p><h2>{html.escape(text['items'])}</h2><table><tr>{headers}</tr>{''.join(rows)}</table><h2>{html.escape(text['actions'])}</h2><p class=\"warn\">{pending}</p></body></html>"
 
 
 def write_author_cockpit(base, language: str = "en"):

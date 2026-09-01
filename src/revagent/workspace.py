@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 from pathlib import Path
 
@@ -40,6 +41,74 @@ from .experiments import (
 from .llm import ensure_llm_review_fields, render_llm_drafts
 from .review_analysis import render_review_analyses
 from .readiness import READINESS_SCHEMA_VERSION, render_revision_readiness
+
+
+ARTIFACT_REGISTRY_VERSION = 1
+
+
+def artifact_registry_document(workspace: Path) -> dict[str, object]:
+    """Describe persisted JSON/YAML artifacts without treating them as conclusions."""
+    artifacts: list[dict[str, object]] = []
+    for name in sorted(path for path in SCHEMA_FILES if path.endswith((".json", ".yaml")) and path != "artifact_registry.json"):
+        path = workspace / name
+        if not path.exists():
+            continue
+        schema_version: object = "legacy-unversioned"
+        if name.endswith(".json"):
+            try:
+                payload = read_json(path, None)
+            except (OSError, ValueError):
+                payload = None
+            if isinstance(payload, dict):
+                schema_version = payload.get("schema_version", payload.get("version", schema_version))
+        elif name == "revision.yaml":
+            schema_version = parse_simple_yaml(read_text(path)).get("schema_version", schema_version)
+        artifacts.append(
+            {
+                "path": name,
+                "format": "json" if name.endswith(".json") else "yaml",
+                "schema_version": str(schema_version),
+                "content_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "owner": "workspace",
+                "migration": "revagent migrate --apply",
+                "compatibility": "Additive fields are supported; use migration before relying on an incompatible schema.",
+            }
+        )
+    return {
+        "version": ARTIFACT_REGISTRY_VERSION,
+        "generated_at": now_iso(),
+        "policy": "The registry records local artifact provenance. Hashes identify the observed snapshot and do not establish mathematical or numerical correctness.",
+        "artifacts": artifacts,
+    }
+
+
+def write_artifact_registry(base: Path) -> dict[str, object]:
+    workspace = load_config(base).workspace
+    registry = artifact_registry_document(workspace)
+    write_json(workspace / "artifact_registry.json", registry)
+    return registry
+
+
+def artifact_registry_is_stale(base: Path) -> bool:
+    """Whether the registry no longer describes the current artifact snapshot."""
+    workspace = load_config(base).workspace
+    try:
+        registry = read_json(workspace / "artifact_registry.json", {})
+    except (OSError, ValueError):
+        return True
+    registered = registry.get("artifacts") if isinstance(registry, dict) else None
+    if not isinstance(registered, list):
+        return True
+    recorded_hashes = {
+        str(entry.get("path", "")): str(entry.get("content_sha256", ""))
+        for entry in registered
+        if isinstance(entry, dict)
+    }
+    current_hashes = {
+        str(entry["path"]): str(entry["content_sha256"])
+        for entry in artifact_registry_document(workspace)["artifacts"]
+    }
+    return recorded_hashes != current_hashes
 
 def default_agent_policy_document() -> dict[str, object]:
     safe = [
@@ -215,6 +284,29 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     }
     write_json(ws / "revision_readiness.json", readiness_default)
     write_text(ws / "revision_readiness.md", render_revision_readiness(readiness_default))
+    write_json(ws / "pre_submission_review.json", {"version": 1, "status": "not_run"})
+    write_text(ws / "pre_submission_review.md", "# Pre-submission Review\n\nNo pre-submission review run yet. Run `revagent review-paper`.\n")
+    write_json(ws / "paper_manifest.json", {"version": 1, "status": "not_ingested"})
+    write_text(ws / "paper_manifest.md", "# Paper Manifest\n\nNo paper ingestion run yet. Run `revagent paper-ingest`.\n")
+    write_json(ws / "review_reports.json", {"version": 1, "reports": {}})
+    write_text(ws / "review_reports.md", "# Role-scoped Pre-submission Reports\n\nNo role reports run yet.\n")
+    write_json(ws / "review_meta_report.json", {"version": 1, "status": "not_merged"})
+    write_text(ws / "review_meta_report.md", "# Merged Pre-submission Review\n\nNo role reports merged yet.\n")
+    write_json(ws / "review_engine.json", {"version": 1, "max_rounds": 2, "rounds": []})
+    write_json(ws / "review_followups.json", {"version": 1, "tasks": []})
+    write_text(ws / "review_followups.md", "# Verification Follow-ups\n\nNo follow-ups created.\n")
+    write_json(ws / "review_outputs.json", {"version": 1, "status": "not_generated"})
+    write_text(ws / "review_outputs.md", "# Advisory Pre-submission Outputs\n\nNo review round completed.\n")
+    write_json(ws / "rebuttal_threads.json", {"version": 1, "threads": {}})
+    write_text(ws / "rebuttal_threads.md", "# Rebuttal Threads\n\nNo rebuttal threads parsed yet.\n")
+    write_text(ws / "rebuttal_draft.md", "# PASTE_READY — Author Review Required\n\nNo rebuttal draft generated yet.\n")
+    write_json(ws / "rebuttal_stress_test.json", {"version": 1, "ok": False, "open_atoms": []})
+    write_json(ws / "rebuttal_final.json", {"version": 1, "status": "not_finalized"})
+    write_json(ws / "literature_consent.json", {"version": 1, "authorizations": []})
+    write_json(ws / "literature_report.json", {"version": 1, "availability": "not_generated"})
+    write_json(ws / "literature_query_authorizations.json", {"version": 1, "authorizations": []})
+    write_json(ws / "history_registry.json", {"version": 1, "records": []})
+    write_json(ws / "artifact_registry.json", artifact_registry_document(ws))
     return ws
 
 def schema_markdown() -> str:
@@ -279,6 +371,16 @@ def schema_markdown() -> str:
             "- `revision_memory.md`: reviewable rendering of revision memory facts.",
             "- `revision_readiness.json`: generated per-item readiness snapshot for submission gating.",
             "- `revision_readiness.md`: reviewable rendering of blockers, ready items, and submit-pack gaps.",
+            "- `pre_submission_review.json`: latest local-only, deterministic, advisory pre-submission structural review; `status: not_run` until generated.",
+            "- `pre_submission_review.md`: reviewable rendering of the advisory pre-submission report.",
+            "- `paper_manifest.json`: versioned local source/PDF binding and LaTeX-index observations; it does not certify correctness.",
+            "- `paper_manifest.md`: reviewable rendering of the local paper manifest.",
+            "- `review_reports.json` / `review_reports.md`: role-scoped advisory structural reports with separate inputs and findings.",
+            "- `review_meta_report.json` / `review_meta_report.md`: advisory merge of current role reports; never an editorial decision.",
+            "- `review_engine.json`: bounded review-round policy and author-pause history.",
+            "- `review_followups.json` / `review_followups.md`: bounded high-risk verification tasks, author-gated and never auto-executed.",
+            "- `review_outputs.json` / `review_outputs.md`: advisory editor summary, reviewer report, and author action list.",
+            "- `artifact_registry.json`: generated registry of persisted JSON/YAML artifact formats, versions, hashes, ownership, migration path, and compatibility policy.",
             "- `candidate_edits.json`: proposed/edited/approved/rejected/blocked/applied manuscript edits with safe patch operations.",
             "- `decision_log.md`: append-only rationale log for item reasoning and author decisions.",
             "- `experiment_runs.jsonl`: append-only experiment result provenance records.",
@@ -400,6 +502,28 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
                 "submit_pack_missing": [],
             }
         ),
+        "pre_submission_review.json": {"version": 1, "status": "not_run"},
+        "pre_submission_review.md": "# Pre-submission Review\n\nNo pre-submission review run yet. Run `revagent review-paper`.\n",
+        "paper_manifest.json": {"version": 1, "status": "not_ingested"},
+        "paper_manifest.md": "# Paper Manifest\n\nNo paper ingestion run yet. Run `revagent paper-ingest`.\n",
+        "review_reports.json": {"version": 1, "reports": {}},
+        "review_reports.md": "# Role-scoped Pre-submission Reports\n\nNo role reports run yet.\n",
+        "review_meta_report.json": {"version": 1, "status": "not_merged"},
+        "review_meta_report.md": "# Merged Pre-submission Review\n\nNo role reports merged yet.\n",
+        "review_engine.json": {"version": 1, "max_rounds": 2, "rounds": []},
+        "review_followups.json": {"version": 1, "tasks": []},
+        "review_followups.md": "# Verification Follow-ups\n\nNo follow-ups created.\n",
+        "review_outputs.json": {"version": 1, "status": "not_generated"},
+        "review_outputs.md": "# Advisory Pre-submission Outputs\n\nNo review round completed.\n",
+        "rebuttal_threads.json": {"version": 1, "threads": {}},
+        "rebuttal_threads.md": "# Rebuttal Threads\n\nNo rebuttal threads parsed yet.\n",
+        "rebuttal_draft.md": "# PASTE_READY — Author Review Required\n\nNo rebuttal draft generated yet.\n",
+        "rebuttal_stress_test.json": {"version": 1, "ok": False, "open_atoms": []},
+        "rebuttal_final.json": {"version": 1, "status": "not_finalized"},
+        "literature_consent.json": {"version": 1, "authorizations": []},
+        "literature_report.json": {"version": 1, "availability": "not_generated"},
+        "literature_query_authorizations.json": {"version": 1, "authorizations": []},
+        "history_registry.json": {"version": 1, "records": []},
         "decision_log.md": "# Decision Log\n\n",
         "latex_index.json": latex_index(config.tex_root, config.main_tex),
         "proof_audit.md": "# Proof Audit\n\n",
@@ -539,6 +663,13 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
             write_revision_memory(base)
             changed = True
 
+    registry_path = config.workspace / "artifact_registry.json"
+    if not registry_path.exists():
+        actions.append("create missing artifact_registry.json")
+        if not dry_run:
+            write_artifact_registry(base)
+            changed = True
+
     return {"dry_run": dry_run, "actions": actions, "changed": changed}
 
 def render_migration_report(result: dict[str, object]) -> str:
@@ -666,6 +797,20 @@ def export_artifacts(base: Path) -> Path:
         "revision_memory.md",
         "revision_readiness.json",
         "revision_readiness.md",
+        "pre_submission_review.json",
+        "pre_submission_review.md",
+        "paper_manifest.json",
+        "paper_manifest.md",
+        "review_reports.json",
+        "review_reports.md",
+        "review_meta_report.json",
+        "review_meta_report.md",
+        "review_engine.json",
+        "review_followups.json",
+        "review_followups.md",
+        "review_outputs.json",
+        "review_outputs.md",
+        "artifact_registry.json",
         "revision_plan.md",
         "response_letter.md",
         "manuscript.patch",
@@ -689,10 +834,13 @@ def export_artifacts(base: Path) -> Path:
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
+    "ARTIFACT_REGISTRY_VERSION",
     "SCHEMA_FILES",
     "WORKSPACE",
     "Config",
     "clean_workspace",
+    "artifact_registry_document",
+    "artifact_registry_is_stale",
     "export_artifacts",
     "init_workspace",
     "load_config",
@@ -702,6 +850,7 @@ __all__ = [
     "render_migration_report",
     "schema_markdown",
     "status",
+    "write_artifact_registry",
     "validate_workspace",
     "workspace_path",
     "write_json",

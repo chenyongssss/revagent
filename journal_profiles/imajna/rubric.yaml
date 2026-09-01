@@ -1,0 +1,3 @@
+version: 1
+checks:
+  - Check notation, reproducibility, and reference completeness.

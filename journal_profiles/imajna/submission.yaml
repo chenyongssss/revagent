@@ -1,0 +1,3 @@
+version: 1
+checks:
+  - Confirm PDF submission, image accessibility, AI disclosure, and software policy against official instructions.

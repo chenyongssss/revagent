@@ -73,6 +73,13 @@ from .reviews import create_plan, ingest_comments
 from .privacy import privacy_scan
 from .contributions import contribution_data_card_template, create_contribution_package
 from .cockpit import write_author_cockpit
+from .pre_submission_review import build_pre_submission_review, load_pre_submission_review, pre_submission_review_is_stale, render_pre_submission_review
+from .paper_ingestion import build_paper_manifest, render_paper_manifest
+from .pre_submission_engine import ROLES, authorize_followup, merge_role_reports, run_review_round, run_role_review
+from .reviewer_packs import available_reviewer_packs
+from .rebuttal import approve_rebuttal_atom, finalize_rebuttal, parse_rebuttal, rebuttal_draft, rebuttal_plan, rebuttal_stress_test, resubmit_rebuttal
+from .literature import PROVIDERS, authorize_literature_provider, authorize_literature_query, cache_literature_query, fetch_openalex, literature_provenance_report, literature_status
+from .history import approve_history, import_history
 from .validation import doctor, validate_workspace
 from .external_agent import (
     external_agent_run_artifact,
@@ -119,8 +126,10 @@ from .workspace import (
     render_migration_report,
     schema_markdown,
     status,
+    artifact_registry_is_stale,
+    write_artifact_registry,
 )
-from .profiles import available_profiles
+from .profiles import available_profiles, diff_rulepacks, initialize_rulepack, render_rulepack_diff, render_rulepack_validation, validate_rulepack
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -128,7 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     init = sub.add_parser("init", help="Create a local revision workspace.")
-    init.add_argument("--journal", required=True, help="Built-in profile or journal_profiles/<name>.yaml.")
+    init.add_argument("--journal", required=True, help="Built-in profile, journal_profiles/<name>/profile.yaml, or legacy journal_profiles/<name>.yaml.")
     init.add_argument("--tex-root", default=".")
     init.add_argument("--main-tex", default=None)
 
@@ -157,6 +166,61 @@ def build_parser() -> argparse.ArgumentParser:
     contribution_export.add_argument("--confirm", action="store_true", help="Confirm that you reviewed the data card and intend to create a local candidate package.")
     cockpit = sub.add_parser("cockpit", help="Write the local bilingual author cockpit HTML evidence overview.")
     cockpit.add_argument("--lang", choices=["en", "zh"], default="en")
+    review_paper = sub.add_parser("review-paper", help="Run a local deterministic advisory pre-submission review.")
+    review_paper.add_argument("--journal", help="Optional directory rulepack or legacy flat journal profile override.")
+    sub.add_parser("review-status", help="Show the latest local advisory pre-submission review.")
+    sub.add_parser("paper-ingest", help="Create a versioned local source/PDF paper manifest.")
+    review_role = sub.add_parser("review-role", help="Generate one role-scoped local advisory structural report.")
+    review_role.add_argument("role", choices=ROLES)
+    review_role.add_argument("--pack", choices=available_reviewer_packs(), default="numerical-pde")
+    sub.add_parser("review-merge", help="Merge current role-scoped reports into an advisory risk matrix.")
+    review_round = sub.add_parser("review-round", help="Run one bounded local advisory review round with an author pause.")
+    review_round.add_argument("--mode", choices=["standard", "hard", "nightmare"], default="standard")
+    review_round.add_argument("--pack", choices=available_reviewer_packs(), default="numerical-pde")
+    sub.add_parser("reviewer-packs", help="List bundled computational-mathematics reviewer packs.")
+    rebuttal = sub.add_parser("rebuttal", help="Create local, author-gated rebuttal thread artifacts.")
+    rebuttal_sub = rebuttal.add_subparsers(dest="rebuttal_command", required=True)
+    for name in ("parse", "plan", "draft", "stress-test"):
+        rebuttal_sub.add_parser(name)
+    rebuttal_finalize = rebuttal_sub.add_parser("finalize")
+    rebuttal_finalize.add_argument("--approved", action="store_true")
+    rebuttal_approve = rebuttal_sub.add_parser("approve")
+    rebuttal_approve.add_argument("atom_id")
+    rebuttal_approve.add_argument("--note", required=True)
+    rebuttal_approve.add_argument("--manuscript-locator", required=True)
+    rebuttal_approve.add_argument("--evidence", required=True)
+    rebuttal_resubmit = rebuttal_sub.add_parser("resubmit")
+    rebuttal_resubmit.add_argument("--from", dest="source_journal", required=True)
+    rebuttal_resubmit.add_argument("--to", dest="target_journal", required=True)
+    literature = sub.add_parser("literature", help="Manage local-only literature provider consent.")
+    literature_sub = literature.add_subparsers(dest="literature_command", required=True)
+    literature_authorize = literature_sub.add_parser("authorize")
+    literature_authorize.add_argument("provider", choices=PROVIDERS)
+    literature_authorize.add_argument("--purpose", required=True)
+    literature_cache = literature_sub.add_parser("cache")
+    literature_cache.add_argument("provider", choices=PROVIDERS)
+    literature_cache.add_argument("--query", required=True)
+    literature_cache.add_argument("--response-file", required=True, help="Local JSON response saved from an approved provider interaction.")
+    literature_sub.add_parser("report")
+    literature_sub.add_parser("status")
+    literature_query = literature_sub.add_parser("authorize-query")
+    literature_query.add_argument("provider", choices=PROVIDERS)
+    literature_query.add_argument("--query", required=True)
+    literature_query.add_argument("--purpose", required=True)
+    literature_query.add_argument("--final-report-permission", action="store_true")
+    literature_fetch = literature_sub.add_parser("fetch-openalex")
+    literature_fetch.add_argument("--query", required=True)
+    literature_fetch.add_argument("--authorization-id", required=True)
+    literature_fetch.add_argument("--offline", action="store_true")
+    history = sub.add_parser("history", help="Manage local, consent-gated revision-history metadata.")
+    history_sub = history.add_subparsers(dest="history_command", required=True)
+    history_import = history_sub.add_parser("import")
+    history_import.add_argument("path")
+    history_import.add_argument("--purpose", required=True)
+    history_approve = history_sub.add_parser("approve")
+    history_approve.add_argument("history_id")
+    review_authorize = sub.add_parser("review-followup-authorize", help="Authorize one bounded verification follow-up; this does not execute it.")
+    review_authorize.add_argument("task_id")
     response_trace = sub.add_parser("response-trace", help="Build a local request-response-manuscript-evidence traceability report.")
     response_trace.add_argument("item_id", nargs="?")
     llm_draft = sub.add_parser("llm-draft", help="Generate offline LLM reviewer-intent and response drafts.")
@@ -180,6 +244,8 @@ def build_parser() -> argparse.ArgumentParser:
     llm_check_parser.add_argument("--all", action="store_true", help="Check every LLM draft.")
     sub.add_parser("incorporate-drafts", help="Regenerate artifacts using accepted and quality-passed LLM drafts.")
     sub.add_parser("schema", help="Print workspace schema documentation.")
+    artifact_registry = sub.add_parser("artifact-registry", help="Refresh or check the JSON/YAML artifact registry snapshot.")
+    artifact_registry.add_argument("--check", action="store_true", help="Check registry freshness without writing it.")
     migrate = sub.add_parser("migrate", help="Inspect or apply non-destructive workspace schema migrations.")
     migrate_mode = migrate.add_mutually_exclusive_group()
     migrate_mode.add_argument("--dry-run", action="store_true", help="Show migration actions without changing files.")
@@ -449,7 +515,21 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("clean", help="Remove generated logs and exported artifacts, preserving source workspace files.")
     sub.add_parser("export", help="Copy final artifacts into .revagent/artifacts.")
     profiles = sub.add_parser("profiles", help="List built-in and local journal profiles.")
-    profiles.add_argument("--base", default=".", help="Project directory to scan for journal_profiles/*.yaml.")
+    profiles.add_argument("--base", default=".", help="Project directory to scan for journal_profiles directory rulepacks and legacy *.yaml files.")
+    journal = sub.add_parser("journal", help="Inspect local journal rulepacks without contacting external services.")
+    journal_sub = journal.add_subparsers(dest="journal_command", required=True)
+    journal_list = journal_sub.add_parser("list", help="List built-in, directory, and legacy local journal profiles.")
+    journal_list.add_argument("--base", default=".")
+    journal_validate = journal_sub.add_parser("validate", help="Validate one journal rulepack's local provenance metadata.")
+    journal_validate.add_argument("name")
+    journal_validate.add_argument("--base", default=".")
+    journal_init = journal_sub.add_parser("init", help="Create an unconfirmed directory-v1 rulepack template.")
+    journal_init.add_argument("name")
+    journal_init.add_argument("--base", default=".")
+    journal_diff = journal_sub.add_parser("diff", help="Compare two local journal rulepacks without fetching sources.")
+    journal_diff.add_argument("left")
+    journal_diff.add_argument("right")
+    journal_diff.add_argument("--base", default=".")
     return parser
 
 
@@ -584,6 +664,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "schema":
         print(schema_markdown())
         return 0
+    if args.command == "artifact-registry":
+        if args.check:
+            if artifact_registry_is_stale(base):
+                print("Artifact registry is stale. Run: revagent artifact-registry")
+                return 1
+            print("Artifact registry is current.")
+            return 0
+        registry = write_artifact_registry(base)
+        print(f"Recorded {len(registry['artifacts'])} JSON/YAML artifact(s) in .revagent/artifact_registry.json")
+        return 0
     if args.command == "migrate":
         dry_run = not args.apply
         print(render_migration_report(migrate_workspace(base, dry_run=dry_run)))
@@ -618,6 +708,146 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "cockpit":
         print(write_author_cockpit(base, args.lang))
+        return 0
+    if args.command == "review-paper":
+        try:
+            print(render_pre_submission_review(build_pre_submission_review(base, args.journal)), end="")
+        except (OSError, ValueError) as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "review-status":
+        try:
+            report = load_pre_submission_review(base)
+        except (OSError, json.JSONDecodeError):
+            print("error: pre-submission review report is invalid; run: revagent review-paper")
+            return 1
+        if not report or report.get("status") == "not_run":
+            print("No pre-submission review run yet. Run: revagent review-paper")
+            return 1
+        try:
+            print(render_pre_submission_review(report), end="")
+        except (KeyError, TypeError):
+            print("error: pre-submission review report is invalid; run: revagent review-paper")
+            return 1
+        if pre_submission_review_is_stale(base, report):
+            print("warning: pre-submission review is stale; run: revagent review-paper")
+            return 1
+        if report.get("journal_specific_status") == "blocked":
+            print("warning: journal-specific reporting is blocked; run: revagent journal validate " + str((report.get("journal") or {}).get("key", "")))
+            return 1
+        return 0
+    if args.command == "paper-ingest":
+        try:
+            print(render_paper_manifest(build_paper_manifest(base)), end="")
+        except OSError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "review-role":
+        report = run_role_review(base, args.role, args.pack)
+        print(f"Generated {report['role']} report with {len(report['issues'])} advisory issue(s)")
+        return 0
+    if args.command == "review-merge":
+        result = merge_role_reports(base)
+        print(f"Merged role reports: {result['status']}")
+        return 0 if result["status"] == "advisory_merged" else 1
+    if args.command == "review-round":
+        try:
+            result = run_review_round(base, args.mode, args.pack)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(f"Completed advisory review round {result['round']['round']}; author pause required")
+        return 0
+    if args.command == "reviewer-packs":
+        print("\n".join(available_reviewer_packs()))
+        return 0
+    if args.command == "rebuttal":
+        if args.rebuttal_command == "parse":
+            result = parse_rebuttal(base)
+            print(f"Parsed {len(result['threads'])} rebuttal thread(s)")
+        elif args.rebuttal_command == "plan":
+            rebuttal_plan(base)
+            print("Planned rebuttal atoms")
+        elif args.rebuttal_command == "draft":
+            print(rebuttal_draft(base), end="")
+        elif args.rebuttal_command == "stress-test":
+            result = rebuttal_stress_test(base)
+            print("Rebuttal stress test: " + ("ready" if result["ok"] else "author review required"))
+        elif args.rebuttal_command == "approve":
+            try:
+                approve_rebuttal_atom(base, args.atom_id, args.note, args.manuscript_locator, args.evidence)
+            except ValueError as exc:
+                print(f"error: {exc}")
+                return 1
+            print(f"Approved rebuttal atom {args.atom_id}")
+        elif args.rebuttal_command == "finalize":
+            try:
+                finalize_rebuttal(base, args.approved)
+            except ValueError as exc:
+                print(f"error: {exc}")
+                return 1
+            print("Finalized author-approved rebuttal")
+        else:
+            try:
+                result = resubmit_rebuttal(base, args.source_journal, args.target_journal)
+            except ValueError as exc:
+                print(f"error: {exc}")
+                return 1
+            print(f"Created isolated resubmission record for {result['to_journal']}")
+        return 0
+    if args.command == "literature":
+        if args.literature_command == "authorize":
+            record = authorize_literature_provider(base, args.provider, args.purpose)
+            print(f"Recorded local-only consent for {record['provider']}; network remains disabled")
+            return 0
+        if args.literature_command == "report":
+            report = literature_provenance_report(base)
+            print(f"Literature provenance report: {report['availability']}")
+            return 0
+        if args.literature_command == "status":
+            print(json.dumps(literature_status(base), ensure_ascii=False, indent=2))
+            return 0
+        if args.literature_command == "authorize-query":
+            record = authorize_literature_query(base, args.provider, args.query, args.purpose, args.final_report_permission)
+            print(record["authorization_id"])
+            return 0
+        if args.literature_command == "fetch-openalex":
+            try:
+                fetch_openalex(base, args.query, args.authorization_id, args.offline)
+            except ValueError as exc:
+                print(f"error: {exc}")
+                return 1
+            print("Cached OpenAlex response")
+            return 0
+        try:
+            response = json.loads(Path(args.response_file).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"error: invalid local provider response: {exc}")
+            return 1
+        try:
+            record = cache_literature_query(base, args.provider, args.query, response)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(f"Cached local {record['provider']} query response; no network request was sent")
+        return 0
+    if args.command == "history":
+        try:
+            record = import_history(base, Path(args.path), args.purpose) if args.history_command == "import" else approve_history(base, args.history_id)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(f"Registered history {record['history_id']} with pending consent; raw content was not stored")
+        return 0
+    if args.command == "review-followup-authorize":
+        try:
+            task = authorize_followup(base, args.task_id)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(f"Authorized follow-up {task['task_id']}; no follow-up work was executed")
         return 0
     if args.command == "proof-plan":
         try:
@@ -1348,6 +1578,27 @@ def main(argv: list[str] | None = None) -> int:
         for name in available_profiles(Path(args.base).resolve()):
             print(name)
         return 0
+    if args.command == "journal":
+        journal_base = Path(args.base).resolve()
+        if args.journal_command == "list":
+            for name in available_profiles(journal_base):
+                print(name)
+            return 0
+        if args.journal_command == "validate":
+            result = validate_rulepack(args.name, journal_base)
+            print(render_rulepack_validation(result), end="")
+            return 0 if result["ok"] else 1
+        if args.journal_command == "init":
+            try:
+                directory = initialize_rulepack(args.name, journal_base)
+            except ValueError as exc:
+                print(f"error: {exc}")
+                return 1
+            print(f"Created unconfirmed rulepack template: {directory}")
+            return 0
+        if args.journal_command == "diff":
+            print(render_rulepack_diff(diff_rulepacks(args.left, args.right, journal_base)), end="")
+            return 0
     parser.error("unknown command")
     return 2
 

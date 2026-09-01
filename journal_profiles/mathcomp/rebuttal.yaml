@@ -1,0 +1,3 @@
+version: 1
+checks:
+  - Avoid presenting model observations as proof verification.

@@ -1,0 +1,4 @@
+version: 1
+checks:
+  - Explain physical or computational significance without overstating validation.
+  - Trace numerical claims to author-reviewed evidence.

@@ -1,0 +1,14 @@
+# Unconfirmed local starter. Verify against official policy before use.
+display_name: SIAM Journal on Numerical Analysis
+version: 1
+source_url: https://epubs.siam.org/journal/sinum/editorial-policy
+source_checked_at: 2026-08-30
+expires_at: 2026-09-30
+human_confirmed: false
+response_heading: Response to the Editor and Reviewers
+tone: precise and mathematically focused
+required_checks:
+  - contribution_statement
+  - reproducibility
+  - bibliography
+  - theorem_traceability

@@ -1,0 +1,3 @@
+version: 1
+checks:
+  - Confirm parameters, testing conditions, and reproducibility requirements against official policy.

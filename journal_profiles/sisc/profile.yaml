@@ -1,0 +1,14 @@
+# Unconfirmed local starter. Verify against official policy before use.
+display_name: SIAM Journal on Scientific Computing
+version: 1
+source_url: https://epubs.siam.org/journal/sisc/instructions-for-authors
+source_checked_at: 2026-08-30
+expires_at: 2026-09-30
+human_confirmed: false
+response_heading: Response to the Editor and Reviewers
+tone: precise, collegial, and concise
+required_checks:
+  - contribution_statement
+  - reproducibility
+  - bibliography
+  - theorem_traceability

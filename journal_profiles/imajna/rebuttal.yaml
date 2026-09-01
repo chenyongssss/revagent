@@ -1,0 +1,3 @@
+version: 1
+checks:
+  - Keep response commitments tied to author-verified revisions.

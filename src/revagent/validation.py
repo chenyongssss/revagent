@@ -78,6 +78,38 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
     for name in SCHEMA_FILES:
         if not (config.workspace / name).exists():
             issues.append(f"missing workspace file: {name}")
+    registry_path = config.workspace / "artifact_registry.json"
+    if registry_path.exists():
+        try:
+            registry = read_json(registry_path, {})
+        except json.JSONDecodeError as exc:
+            issues.append(f"invalid JSON in artifact_registry.json: {exc}")
+        else:
+            if not isinstance(registry, dict) or registry.get("version") != 1:
+                issues.append("artifact_registry.json has an incompatible registry version; run revagent migrate --apply")
+            else:
+                registered = registry.get("artifacts")
+                if not isinstance(registered, list):
+                    issues.append("artifact_registry.json artifacts must be a list")
+                else:
+                    registered_paths = {str(entry.get("path", "")) for entry in registered if isinstance(entry, dict)}
+                    expected_paths = {name for name in SCHEMA_FILES if name.endswith((".json", ".yaml")) and name != "artifact_registry.json"}
+                    for name in sorted(expected_paths - registered_paths):
+                        warnings.append(f"artifact_registry.json does not register core artifact {name}; run revagent migrate --apply")
+                    for entry in registered:
+                        if not isinstance(entry, dict):
+                            issues.append("artifact_registry.json contains a non-object artifact entry")
+                            continue
+                        if not entry.get("schema_version") or not entry.get("content_sha256"):
+                            warnings.append(f"artifact_registry.json has incomplete metadata for {entry.get('path', 'unknown artifact')}")
+                    known_paths = expected_paths | {"artifact_registry.json"}
+                    for path in config.workspace.iterdir():
+                        if path.is_file() and path.suffix in {".json", ".yaml"} and path.name not in known_paths:
+                            warnings.append(f"unknown persisted artifact: {path.name}")
+                    from .workspace import artifact_registry_is_stale
+
+                    if artifact_registry_is_stale(base):
+                        warnings.append("artifact registry is stale; run revagent artifact-registry")
     issues.extend(comment_import_issues(base, config.workspace))
     # The cycle database is an append-only evidence ledger.  Its failures are
     # hard errors, never advisory warnings, because a dry run must fail closed.
@@ -89,6 +121,37 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
             read_json(config.workspace / name, {})
         except json.JSONDecodeError as exc:
             issues.append(f"invalid JSON in {name}: {exc}")
+    try:
+        pre_submission_review = read_json(config.workspace / "pre_submission_review.json", {})
+    except json.JSONDecodeError as exc:
+        issues.append(f"invalid JSON in pre_submission_review.json: {exc}")
+    else:
+        if not isinstance(pre_submission_review, dict):
+            issues.append("pre_submission_review.json must be an object")
+        elif pre_submission_review.get("status") != "not_run":
+            summary = pre_submission_review.get("summary")
+            findings = pre_submission_review.get("findings")
+            if not isinstance(summary, dict) or not summary.get("status"):
+                warnings.append("pre_submission_review.json has no report summary; run revagent review-paper")
+            if not isinstance(findings, list):
+                warnings.append("pre_submission_review.json findings must be a list; run revagent review-paper")
+            else:
+                from .pre_submission_review import pre_submission_review_is_stale
+
+                if pre_submission_review_is_stale(base, pre_submission_review):
+                    warnings.append("pre-submission review is stale; run revagent review-paper")
+    try:
+        paper_manifest = read_json(config.workspace / "paper_manifest.json", {})
+    except json.JSONDecodeError as exc:
+        issues.append(f"invalid JSON in paper_manifest.json: {exc}")
+    else:
+        if not isinstance(paper_manifest, dict):
+            issues.append("paper_manifest.json must be an object")
+        elif paper_manifest.get("status") != "not_ingested":
+            from .paper_ingestion import paper_manifest_is_stale
+
+            if paper_manifest_is_stale(base, paper_manifest):
+                warnings.append("paper manifest is stale; run revagent paper-ingest")
     agent_runs = config.workspace / "agent_runs.jsonl"
     if agent_runs.exists():
         for index, line in enumerate(read_text(agent_runs).splitlines(), start=1):

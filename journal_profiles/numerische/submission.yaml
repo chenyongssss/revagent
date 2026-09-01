@@ -1,0 +1,3 @@
+version: 1
+checks:
+  - Confirm current Springer submission, source-file, and declaration requirements.

@@ -1,0 +1,3 @@
+version: 1
+checks:
+  - Confirm current author-guide requirements for data, code, figures, and declarations.

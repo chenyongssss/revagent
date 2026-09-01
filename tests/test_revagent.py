@@ -1688,7 +1688,7 @@ def test_external_agent_dry_run_writes_prompt_and_static_dashboard(tmp_path: Pat
     assert "First, read `plan.md`" in prompt
     assert "continue phase one" in prompt
     assert "Do not approve proof workflows." in prompt
-    assert "RevAgent Iteris-Style Roadmap" in prompt
+    assert "RevAgent Roadmap: Revision Workspace to Pre-submission Review Agent" in prompt
     assert "Current revision memory:" in prompt
     assert load_external_agent_runs(load_config(tmp_path)) == []
 

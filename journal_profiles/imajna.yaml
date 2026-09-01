@@ -1,0 +1,15 @@
+display_name: IMA Journal of Numerical Analysis
+version: 1
+source_url: https://academic.oup.com/imajna/pages/General_Instructions
+source_checked_at: 2026-08-30
+human_confirmed: false
+response_heading: Response to the Editor and Reviewers
+tone: formal and mathematically focused
+required_checks:
+  - notation
+  - reproducibility
+  - bibliography
+  - figure_accessibility
+checks:
+  - Confirm PDF submission, image alt text, and Harvard references.
+  - Confirm AI-use disclosure and data/software availability policy.

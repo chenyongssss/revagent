@@ -1,0 +1,14 @@
+display_name: Mathematics of Computation
+version: 1
+source_checked_at: 2026-08-30
+human_confirmed: false
+response_heading: Response to the Editor and Reviewers
+tone: formal and mathematically focused
+required_checks:
+  - contribution_statement
+  - notation
+  - bibliography
+  - theorem_traceability
+checks:
+  - Verify theorem hypotheses and proof dependencies manually.
+  - Confirm AMS manuscript requirements before submission.

@@ -1,0 +1,3 @@
+version: 1
+checks:
+  - Confirm code, data, and reproducibility material against the current official policy.

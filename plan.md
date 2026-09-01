@@ -1,8 +1,65 @@
-# RevAgent Iteris-Style Roadmap
+# RevAgent Roadmap: Revision Workspace to Pre-submission Review Agent
 
-## Current Directive
+## Current Status (2026-09-01)
 
-Future tasks must begin by reading this file, then continue the roadmap below. Phases 1-33 are complete. Future process-supervision work must preserve manual safety gates.
+RevAgent is a local, auditable, human-gated revision workspace for computational
+mathematics. It is not yet a general STEM review agent that can independently
+assess a new manuscript against a journal's full requirements, establish
+mathematical correctness, validate experiments, or make an editorial decision.
+
+The historical implementation phases 1-39 below are implemented as the
+revision-workspace baseline. Their scope is intentionally item-centred:
+reviewer comments, plans, evidence, candidate edits, runtime supervision,
+author gates, and synthetic benchmarks. They must continue to preserve manual
+safety gates.
+
+The pre-submission roadmap begins after the historical record. Its status is
+based on checked-in code and the current working tree, not on planned names:
+
+| New phase | Status | Evidence and remaining gap |
+| --- | --- | --- |
+| 0. Specification freeze | Advanced partial | The working tree adds an artifact registry with versions, hashes, ownership, migration commands, compatibility policy, schema documentation, drift validation, and non-destructive migration coverage. It still needs a reviewed inventory proving that every core persisted JSON/YAML artifact is registered and compatible with an older real workspace. Registry content drift is refreshed explicitly with `artifact-registry`; it is not a schema migration. |
+| 1. Journal Rulepack v1 | Advanced partial | Directory rulepacks, legacy flat-profile compatibility, expiry and human-confirmation enforcement, component hashes, and `journal list/validate/init/diff` exist. Six starter directories cover SISC, SINUM, Mathematics of Computation, IMAJNA, Journal of Computational Physics, and Numerische Mathematik. Official-source review, rule completeness, and acceptance checks across all six packs remain required. |
+| 2. Paper ingestion and Claim-Evidence Graph | Partial implementation | A versioned paper manifest binds reachable LaTeX sources and an optional same-stem PDF by hash, and records structural claims, bibliography entries, duplicate DOI observations, possible undefined symbols, and figure/table references. PDF inspection remains binary and heuristic; source-to-PDF page mapping, rendered layout/OCR checks, complete theorem/proof/assumption dependencies, external DOI verification, and high-risk claim-to-evidence traceability are not complete. |
+| 3. Pre-submission Review Engine | Prototype | Deterministic role-scoped text/theory/experiment reports, current-input isolation, merging, bounded standard/hard/nightmare rounds, author-gated follow-ups, a risk matrix, and advisory outputs exist. They are structural roles rather than independently validated semantic or cross-model reviewers; conflict resolution, real meta-review, budgets, and adversarial evaluation remain incomplete. |
+| 4. Computational-mathematics reviewer packs | Prototype | Eight versioned guidance packs define claim types, assumptions, evidence expectations, objections, and stress tests. They are not yet integrated as calibrated reviewers and have no manually labelled recall or false-pass measurements. |
+| 5. Rebuttal/resubmit loop | Advanced partial | Atomized parse/plan/draft/stress-test/finalize commands, explicit atom approval, traceability fields, placeholders, and isolated journal-to-journal resubmission records exist. Rich output, robust tone/length/commitment linting, and end-to-end acceptance coverage remain incomplete. |
+| 6. Literature and external providers | Early partial | Provider and per-query consent ledgers, reproducible local cache records, provenance reports, privacy gating, offline behavior, and an OpenAlex adapter exist. Crossref, arXiv, Semantic Scholar, DOI/retraction adapters, citation graphs, claim alignment, and novelty-risk analysis remain missing. |
+| 7. Personal revision memory and local RAG | Minimal foundation | History import currently records only hashes, purpose, consent, and approval without storing raw content. Redaction preview, retention/deletion/export, searchable local indexing, rebuild, and retrieval controls do not exist. |
+| 8. General research project and local deployment | Partial foundation | SQLite runtime, local dashboard, worker/provider integrations, and durable revision memory exist. General research project/family/evolve workflows and the prescribed project layout do not. |
+| 9. Quality, privacy, and release gate | Partial | Synthetic benchmarks, privacy scanning, contribution data cards, and an independent-expert template exist. Real calibrated multi-expert benchmarks and release gates per model/profile/pack remain missing. |
+
+The current implementation spans Phases 0-7. The Phase 0-2 foundation and its
+full regression suite form the reviewed baseline; remaining acceptance gaps are
+listed above. Prototype commands in Phases 3-7 do not satisfy their phase
+acceptance criteria by themselves.
+
+## Immediate Delivery Order
+
+1. Keep the reviewed Phase 0-2 baseline and full regression suite green.
+2. Complete semantic claim/evidence dependencies and rendered PDF inspection,
+   including source-to-page binding and explicit observation limitations.
+3. Add manually labelled evaluation cases for independent review roles and
+   reviewer packs before expanding autonomy or describing them as calibrated.
+4. Complete rebuttal linting and additional consent-gated literature providers
+   only after the ingestion and evaluation foundations are stable.
+5. Defer searchable personal RAG until redaction, consent, retention, deletion,
+   export, and rebuild semantics are specified and tested.
+
+## Product Boundary
+
+Target capability: a local, auditable pre-submission review workbench for
+computational mathematics that ingests a manuscript, applies a versioned
+journal rulepack, produces structured multi-role risk reports, supports
+evidence-backed revision and rebuttal planning, and keeps author/domain-expert
+approval as the final gate.
+
+Non-goals until independently validated: guaranteeing acceptance, representing
+AI scores as expert conclusions, certifying proofs or numerical results,
+silently uploading private manuscripts/history/credentials, or automatically
+closing high-risk tasks and writing back to a manuscript.
+
+## Historical Implementation Record
 
 ## Completed Phase 1
 
@@ -418,3 +475,182 @@ Future tasks must begin by reading this file, then continue the roadmap below. P
 
 - Verify a shadow registration rejects incomplete cases, preserves source confidentiality, and emits an expert-evaluation template without copying case text into the workspace.
 - Require independent human expert scores before a shadow case can support any quality or autonomy claim.
+
+# Pre-submission Review Roadmap
+
+## Phase 0: Specification Freeze and Documentation Alignment
+
+- Register every persisted JSON/YAML artifact with a schema version, content
+  hash, ownership, migration path, and compatibility policy.
+- Correct documentation so completed historical phases, current in-progress
+  Phase 1-2 starter work, and future work cannot be conflated.
+- Preserve the distinction between evidence observations and mathematical or
+  numerical conclusions.
+
+Acceptance: an older workspace can be migrated non-destructively, every core
+artifact has version/hash/schema documentation, and validation reports unknown
+or incompatible artifacts clearly.
+
+## Phase 1: Journal Rulepack v1
+
+- Replace the flat-profile convention with
+  `journal_profiles/<name>/profile.yaml`, `rubric.yaml`, `submission.yaml`,
+  `rebuttal.yaml`, and `sources.md`.
+- Express metadata, format and page/word limits, required questions/sections,
+  abstract/keywords/MSC requirements, references, figures/alt text,
+  supplementary material, code/data/reproducibility, AI disclosure, conflicts,
+  originality, concurrent-submission declarations, rebuttal limits, source
+  URL, retrieved date, rule version, expiry, and human confirmation state.
+- Add `revagent journal list`, `validate`, `init`, and `diff`; retain a
+  compatibility reader for legacy flat YAML profiles.
+- Make expired or unconfirmed rulepacks visible and blocking for any report
+  presented as journal-specific. They may never silently take effect.
+- Supply reviewed starter packs for SISC, SINUM, Mathematics of Computation,
+  IMAJNA, Journal of Computational Physics, and Numerische Mathematik.
+
+Acceptance: switching the journal changes checks, rubric explanations, and
+submission checklist; stale rules are warned or blocked according to policy;
+each rule is traceable to an official source and review date.
+
+## Phase 2: Paper Ingestion and Claim-Evidence Graph
+
+- Build one versioned paper object linking source tree, compiled PDF, sections,
+  claims, theorems, proofs, algorithms, experiments, figures, tables,
+  bibliography, external references, source spans, PDF pages, and content
+  hashes.
+- Add deterministic checks for undefined symbols; theorem/proof/assumption
+  dependencies; claims lacking evidence; figure/table references; missing or
+  unused bibliography entries; DOI disagreement; source/PDF mismatch; page
+  limits; font/overflow/blank-page issues; and required attachments.
+- Bind compiled PDF and source snapshots explicitly. PDF/OCR observations must
+  be marked as observations, never proof of semantic correctness.
+
+Acceptance: every high-risk claim can be traced to source, PDF location, and
+evidence state; a report identifies the exact manuscript snapshot it reviewed.
+
+## Phase 3: Pre-submission Review Engine
+
+- Introduce independent `text-reviewer`, `theory-reviewer`, and
+  `experiment-reviewer` roles. Each produces a versioned `ReviewReport` with
+  issue ID, severity, confidence, claim/evidence references, rationale,
+  requested verification, and required author decision.
+- Implement fresh-context isolation, optional cross-model review, controlled
+  reviewer memory, issue deduplication, conflict handling, meta-review, and
+  hard/nightmare adversarial modes.
+- Make each new finding capable of creating a bounded, authorized verification
+  task and follow-up review round. Enforce maximum rounds, cost budgets, and
+  human pause points.
+- Render three explicitly advisory outputs: editor summary, reviewer report,
+  and author action list; include overall risk dimensions and confidence only
+  as model assistance, never as an accept/reject decision.
+
+Acceptance: the same paper receives at least two independent reports that can
+be merged into a global risk matrix without exposing earlier conclusions to an
+independent reviewer or presenting AI output as a journal decision.
+
+## Phase 4: Computational-Mathematics Reviewer Packs
+
+Expand in this order: numerical PDE/FEM/FDM; optimization, iterative methods,
+and linear algebra; ODE/PDE stability and convergence; stochastic numerical
+methods and UQ; scientific software/HPC; computational physics; then
+statistics, machine learning, and engineering computation. Each pack defines
+claim types, assumptions and theorem side conditions, minimum numerical
+evidence, recurrent objections, counterexample/stress-test templates, and
+journal mappings.
+
+Acceptance: manually labelled cases measure high-risk recall, defect recall,
+and false-pass rate for each pack. LLM self-scores are not a quality metric.
+
+## Phase 5: Rebuttal and Resubmission Loop
+
+- Add `rebuttal parse`, `plan`, `draft`, `stress-test`, `finalize`, and
+  `resubmit --from A --to B`.
+- Atomize each comment, retain per-reviewer threads, and lint coverage,
+  provenance, commitments, tone, and length limits.
+- Produce both `PASTE_READY` and rich drafts. Block fabricated experiments,
+  results, facts, and commitments.
+- Keep old and target journal rules separated and preserve all submission
+  versions rather than overwriting them.
+
+Acceptance: every rebuttal statement is traceable to the addressed request,
+manuscript/evidence status, and required human approval.
+
+## Phase 6: Literature and External Tool Connectors
+
+- Add explicit, opt-in read-only providers for OpenAlex, Crossref, arXiv,
+  Semantic Scholar, DOI/retraction metadata, and optionally a local PDF
+  library. MathSciNet/zbMATH require their own licensed adapters.
+- Record provider, query, timestamp, response hash, retrieved references,
+  approval state, final-report permission, and cache provenance for all
+  external results.
+- Build claim-to-literature alignment, related-work/citation graphs, duplicate
+  and metadata checks, and prior-art/novelty-risk reports that remain advisory.
+- Apply privacy scanning and provider authorization before any network request;
+  allow users to disable network access completely.
+
+Acceptance: a final report distinguishes manuscript evidence from retrieved
+metadata, and each literature claim can be reproduced from the saved query
+record or reported as unavailable.
+
+## Phase 7: Personal Revision Memory and Local RAG
+
+- Add `history import`, `redact`, `approve`, `memory search`, `delete`, and
+  `export`.
+- Process material locally through parsing, PII/sensitive-data scanning,
+  de-identification preview, explicit consent, and a local SQLite FTS or local
+  vector index. Do not require fine-tuning.
+- Store source hash, de-identification status, consent, retention, permitted
+  purpose, and deletion status. Make deletion/export/rebuild auditable.
+- Retrieve only as a style and precedent suggestion. Never automatically copy
+  historical rebuttal prose or upload raw history without authorization.
+
+Acceptance: a user can inspect, delete, export, and rebuild their memory;
+unapproved or unredacted history cannot enter the retrieval index.
+
+## Phase 8: General Research Projects and Local Deployment
+
+- Extend the existing runtime with generic projects structured as `sources/`,
+  `references/`, `tasks/`, `memory/`, `reports/`, `experiments/`, and
+  `.revagent/`.
+- Add a resumable task frontier, project/family/evolve workflow, verified-result
+  to generalization branch, versioned evidence reports, and a loopback-only
+  dashboard.
+- Support provider plugins for Ollama, vLLM, OpenAI-compatible services, Codex,
+  and Claude, each behind consent, privacy, budget, and task-scope controls.
+
+Acceptance: a local project can resume its task frontier and produce a
+versioned report while agents remain unable to confirm proofs/experiments,
+close high-risk tasks, or write manuscript changes without human authorization.
+
+## Phase 9: Quality, Privacy, and Release Gates
+
+- Maintain real quality benchmarks with at least two independent domain-expert
+  ratings. Track plan accuracy, high-risk recall, defect recall, false-pass
+  rate, and claim-provenance completeness.
+- Calibrate and publish results per model, journal rulepack version, and
+  reviewer pack. Keep licensed/deidentified cases and permissions outside the
+  repository unless their data card permits inclusion.
+- Release policy: never promise acceptance rates or equate model scores with
+  expert conclusions; default to no upload of private manuscripts, revision
+  history, or credentials.
+
+Acceptance: quality claims name the benchmark, population, model and profile
+versions, expert protocol, and known limitations; no release passes with an
+unresolved privacy or high-risk provenance failure.
+
+## First Deliverable
+
+The initial product-facing workflow is:
+
+```text
+revagent init --journal sisc
+revagent review-paper manuscript/ --journal sisc
+revagent review-status
+revagent review-next
+revagent rebuttal ...
+```
+
+Its success criterion is a computational-mathematics LaTeX/PDF manuscript plus
+a journal rulepack producing a structured, multi-role, traceable advisory
+pre-submission review. It does not certify correctness or submission readiness
+without author/domain-expert review.

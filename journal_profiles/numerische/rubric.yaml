@@ -1,0 +1,4 @@
+version: 1
+checks:
+  - Trace theorem assumptions and proof dependencies for author/domain-expert review.
+  - Separate numerical observations from mathematical conclusions.

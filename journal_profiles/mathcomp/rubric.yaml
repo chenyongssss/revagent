@@ -1,0 +1,3 @@
+version: 1
+checks:
+  - Verify theorem hypotheses and proof dependencies manually.

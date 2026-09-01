@@ -1,0 +1,15 @@
+display_name: SIAM Journal on Numerical Analysis
+version: 1
+source_url: https://epubs.siam.org/journal/sinum/editorial-policy
+source_checked_at: 2026-08-30
+human_confirmed: false
+response_heading: Response to the Editor and Reviewers
+tone: precise and mathematically focused
+required_checks:
+  - contribution_statement
+  - reproducibility
+  - bibliography
+  - theorem_traceability
+checks:
+  - Relate results to existing numerical-analysis literature.
+  - Record parameters, testing conditions, and post-processing.

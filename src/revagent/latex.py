@@ -151,6 +151,7 @@ def latex_index(tex_root: Path, main_tex: str | None = None, macro_registry: dic
     registered_theorem_macros = normalize_theorem_macro_registry(macro_registry)
     default_theorem_like = set(registered_theorem_macros)
     symbols: list[dict[str, object]] = []
+    command_uses: list[dict[str, object]] = []
 
     for path in tex_files(tex_root, main_tex):
         rel = str(path.relative_to(tex_root))
@@ -175,6 +176,8 @@ def latex_index(tex_root: Path, main_tex: str | None = None, macro_registry: dic
         ):
             for match in re.finditer(pattern, text):
                 symbols.append({"name": f"\\{match.group(name_group)}", "kind": kind, "source_span": source_span(rel, text, match.start(), match.end())})
+        for match in re.finditer(r"\\([A-Z][A-Za-z@]+)", text):
+            command_uses.append({"name": f"\\{match.group(1)}", "source_span": source_span(rel, text, match.start(), match.end())})
         for match in re.finditer(r"\\(section|subsection|subsubsection)\*?\{([^{}]+)\}", text):
             sections.append({"file": rel, "line": line_for_offset(text, match.start()), "level": match.group(1), "title": match.group(2).strip()})
 
@@ -238,6 +241,9 @@ def latex_index(tex_root: Path, main_tex: str | None = None, macro_registry: dic
                 previous_claim[rel] = {"environment": env_type, "line": line, "labels": env["labels"], "excerpt": env["excerpt"]}
     label_names = {entry["label"] for entry in labels}
     unresolved_refs = [entry for entry in refs if entry["ref"] not in label_names]
+    defined_symbols = {str(entry["name"]) for entry in symbols}
+    known_uppercase_commands = {"\\LaTeX", "\\TeX", "\\Today"}
+    potential_undefined_symbols = [entry for entry in command_uses if entry["name"] not in defined_symbols | known_uppercase_commands]
     return {
         "root_file": graph["root_file"],
         "files": graph["files"],
@@ -247,6 +253,7 @@ def latex_index(tex_root: Path, main_tex: str | None = None, macro_registry: dic
         "custom_environments": custom_environments,
         "theorem_macro_registry": registered_theorem_macros,
         "symbols": symbols,
+        "potential_undefined_symbols": potential_undefined_symbols,
         "sections": sections,
         "labels": labels,
         "refs": refs,

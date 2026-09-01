@@ -1,0 +1,4 @@
+version: 1
+checks:
+  - Relate results to existing numerical-analysis literature.
+  - Verify theorem and numerical claims with an author or domain expert.

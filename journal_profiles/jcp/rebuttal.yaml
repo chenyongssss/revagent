@@ -1,0 +1,3 @@
+version: 1
+checks:
+  - Map each response to the request, evidence state, and manuscript location.
