@@ -114,6 +114,7 @@ def _claim_evidence_graph(config, index: dict[str, object], pdf_path: Path) -> t
         evidence_state = "proof_environment_bound" if bound_proofs else ("assumption_declaration" if claim["theorem_kind"] == "assumption" else "no_bound_proof")
         manifest_claims.append({
             "claim_id": claim_id, "kind": claim["theorem_kind"], "source_span": claim["source_span"],
+            "excerpt": claim.get("excerpt", ""), "content_sha256": claim.get("content_sha256", ""),
             "pdf_location": page, "evidence_state": evidence_state,
             "proof_source_spans": [proof["source_span"] for proof in bound_proofs],
             "claim_dependencies": referenced_claim_ids, "assumption_dependencies": assumption_dependencies,

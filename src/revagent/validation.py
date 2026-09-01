@@ -372,6 +372,10 @@ def validate_workspace(base: Path, compile_check: bool = False) -> dict[str, obj
 
     if memory_missing_or_stale(config):
         warnings.append("revision memory is missing or stale; run revagent memory")
+    from .literature import claim_literature_alignments_are_stale
+
+    if claim_literature_alignments_are_stale(base):
+        warnings.append("literature alignments are stale; run revagent literature align")
     from .readiness import readiness_missing_or_stale
 
     if readiness_missing_or_stale(config):

@@ -72,6 +72,8 @@ revagent literature fetch crossref --query "finite element estimator" --authoriz
 revagent literature report
 revagent literature graph
 revagent literature retractions
+revagent literature align
+revagent literature align-review ALN-ID --decision approve --relationship background --note "Author-verified context"
 ```
 
 Cache records retain the endpoint, content type, canonical response hash, raw
@@ -86,6 +88,13 @@ is derived conservatively from Crossref `update-to` and relationship metadata.
 `no_retraction_metadata_observed` means only that the permitted cached metadata
 contained no matching assertion; it never means that a work is confirmed not
 to be retracted.
+
+Claim alignment is local and deterministic: it compares indexed claim excerpts
+with permitted metadata titles and emits at most five lexical-overlap candidates
+per claim. Candidates remain `pending_author_review` until explicitly approved
+or rejected. Approval records a relationship (`supports`, `contrasts`,
+`background`, or `method`) and an author note; the score itself is never a
+semantic judgment or novelty assessment.
 
 ## Local journal rulepacks
 

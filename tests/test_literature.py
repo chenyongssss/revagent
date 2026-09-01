@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 
 from revagent.cli import main
-from revagent.literature import authorize_literature_provider, authorize_literature_query, build_citation_graph, build_retraction_report, cache_literature_query, fetch_literature_provider, normalize_provider_response
+from revagent.literature import authorize_literature_provider, authorize_literature_query, build_citation_graph, build_claim_literature_alignments, build_retraction_report, cache_literature_query, claim_literature_alignments_are_stale, fetch_literature_provider, normalize_provider_response, review_claim_literature_alignment
+from revagent.paper_ingestion import build_paper_manifest
+from revagent.validation import validate_workspace
 from revagent.workspace import init_workspace, migrate_workspace
 
 
@@ -123,3 +125,89 @@ def test_derived_literature_artifacts_exclude_unpermitted_cache(tmp_path: Path, 
     retractions = json.loads((tmp_path / ".revagent" / "literature_retractions.json").read_text(encoding="utf-8"))
     assert graph["nodes"] == [] and graph["edges"] == []
     assert retractions["records"] == [] and retractions["assertions"] == []
+
+
+def _alignment_workspace(tmp_path: Path) -> None:
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\newtheorem{theorem}{Theorem}\n\\begin{document}\n"
+        "\\begin{theorem}Adaptive finite element convergence for elliptic problems.\\end{theorem}\n"
+        "\\begin{proof}Proof.\\end{proof}\n\\end{document}\n",
+        encoding="utf-8",
+    )
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    build_paper_manifest(tmp_path)
+    authorize_literature_provider(tmp_path, "crossref", "alignment")
+
+
+def test_claim_alignment_candidates_require_author_review_and_preserve_decision(tmp_path: Path) -> None:
+    _alignment_workspace(tmp_path)
+    visible = authorize_literature_query(tmp_path, "crossref", "adaptive FEM", "alignment", True)
+    hidden = authorize_literature_query(tmp_path, "crossref", "private", "alignment", False)
+    cache_literature_query(tmp_path, "crossref", "adaptive FEM", {"message": {"items": [
+        {"DOI": "10.1000/high", "title": ["Adaptive finite element convergence for elliptic problems"]},
+        {"DOI": "10.1000/low", "title": ["Elliptic problems and unrelated estimates"]},
+    ]}}, authorization=visible)
+    cache_literature_query(tmp_path, "crossref", "private", {"message": {"items": [
+        {"DOI": "10.1000/hidden", "title": ["Adaptive finite element convergence"]},
+    ]}}, authorization=hidden)
+
+    payload = build_claim_literature_alignments(tmp_path)
+    assert [item["doi"] for item in payload["candidates"]] == ["10.1000/high", "10.1000/low"]
+    candidate = payload["candidates"][0]
+    assert candidate["status"] == "pending_author_review"
+    assert candidate["provenance"]["response_sha256"]
+    with pytest.raises(ValueError, match="requires supports"):
+        review_claim_literature_alignment(tmp_path, candidate["candidate_id"], "approve", "unrelated", "checked")
+    approved = review_claim_literature_alignment(tmp_path, candidate["candidate_id"], "approve", "supports", "Author checked the paper context.")
+    assert approved["status"] == "approved"
+    regenerated = build_claim_literature_alignments(tmp_path)
+    assert regenerated["candidates"][0]["status"] == "approved"
+    assert regenerated["candidates"][0]["author_note"] == "Author checked the paper context."
+
+
+def test_claim_alignment_rejects_stale_manifest(tmp_path: Path) -> None:
+    _alignment_workspace(tmp_path)
+    (tmp_path / "paper.tex").write_text("\\documentclass{article}\\begin{document}changed\\end{document}", encoding="utf-8")
+    with pytest.raises(ValueError, match="manifest is stale"):
+        build_claim_literature_alignments(tmp_path)
+
+
+def test_claim_alignment_rejects_legacy_manifest_claims(tmp_path: Path) -> None:
+    _alignment_workspace(tmp_path)
+    path = tmp_path / ".revagent" / "paper_manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["claims"][0].pop("content_sha256")
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="lacks claim alignment fields"):
+        build_claim_literature_alignments(tmp_path)
+
+
+def test_claim_alignment_cli_review(tmp_path: Path, monkeypatch) -> None:
+    _alignment_workspace(tmp_path)
+    auth = authorize_literature_query(tmp_path, "crossref", "adaptive", "alignment", True)
+    cache_literature_query(tmp_path, "crossref", "adaptive", {"message": {"items": [
+        {"DOI": "10.1000/cli", "title": ["Adaptive finite element convergence"]},
+    ]}}, authorization=auth)
+    monkeypatch.chdir(tmp_path)
+    assert main(["literature", "align"]) == 0
+    payload = json.loads((tmp_path / ".revagent" / "literature_alignments.json").read_text(encoding="utf-8"))
+    candidate_id = payload["candidates"][0]["candidate_id"]
+    assert main(["literature", "align-review", candidate_id, "--decision", "reject", "--note", "Not relevant after author inspection."]) == 0
+
+
+def test_claim_alignment_detects_changed_literature_cache_before_review(tmp_path: Path) -> None:
+    _alignment_workspace(tmp_path)
+    auth = authorize_literature_query(tmp_path, "crossref", "adaptive", "alignment", True)
+    cache_literature_query(tmp_path, "crossref", "adaptive", {"message": {"items": [
+        {"DOI": "10.1000/first", "title": ["Adaptive finite element convergence"]},
+    ]}}, authorization=auth)
+    payload = build_claim_literature_alignments(tmp_path)
+    candidate_id = payload["candidates"][0]["candidate_id"]
+    second = authorize_literature_query(tmp_path, "crossref", "elliptic", "alignment", True)
+    cache_literature_query(tmp_path, "crossref", "elliptic", {"message": {"items": [
+        {"DOI": "10.1000/second", "title": ["Elliptic finite element analysis"]},
+    ]}}, authorization=second)
+    assert claim_literature_alignments_are_stale(tmp_path) is True
+    with pytest.raises(ValueError, match="alignments are stale"):
+        review_claim_literature_alignment(tmp_path, candidate_id, "approve", "background", "Checked.")
+    assert any("literature alignments are stale" in warning for warning in validate_workspace(tmp_path)["warnings"])

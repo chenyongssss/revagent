@@ -78,7 +78,7 @@ from .paper_ingestion import build_paper_manifest, render_paper_manifest
 from .pre_submission_engine import ROLES, authorize_followup, merge_role_reports, run_review_round, run_role_review
 from .reviewer_packs import available_reviewer_packs
 from .rebuttal import approve_rebuttal_atom, finalize_rebuttal, parse_rebuttal, rebuttal_draft, rebuttal_plan, rebuttal_stress_test, resubmit_rebuttal
-from .literature import FETCH_PROVIDERS, PROVIDERS, authorize_literature_provider, authorize_literature_query, build_citation_graph, build_retraction_report, cache_literature_query, fetch_literature_provider, fetch_openalex, literature_provenance_report, literature_status
+from .literature import FETCH_PROVIDERS, PROVIDERS, authorize_literature_provider, authorize_literature_query, build_citation_graph, build_claim_literature_alignments, build_retraction_report, cache_literature_query, fetch_literature_provider, fetch_openalex, literature_provenance_report, literature_status, review_claim_literature_alignment
 from .history import approve_history, import_history
 from .validation import doctor, validate_workspace
 from .external_agent import (
@@ -206,6 +206,12 @@ def build_parser() -> argparse.ArgumentParser:
     literature_sub.add_parser("status")
     literature_sub.add_parser("graph", help="Build a provenance-preserving graph from permitted cached metadata.")
     literature_sub.add_parser("retractions", help="Build a conservative retraction-status report from permitted cached metadata.")
+    literature_sub.add_parser("align", help="Generate local claim-to-literature candidates for author review.")
+    literature_align_review = literature_sub.add_parser("align-review", help="Record an explicit author decision on one alignment candidate.")
+    literature_align_review.add_argument("candidate_id")
+    literature_align_review.add_argument("--decision", choices=("approve", "reject"), required=True)
+    literature_align_review.add_argument("--relationship", choices=("supports", "contrasts", "background", "method", "unrelated"), default="unrelated")
+    literature_align_review.add_argument("--note", required=True)
     literature_query = literature_sub.add_parser("authorize-query")
     literature_query.add_argument("provider", choices=PROVIDERS)
     literature_query.add_argument("--query", required=True)
@@ -827,6 +833,23 @@ def main(argv: list[str] | None = None) -> int:
         if args.literature_command == "retractions":
             report = build_retraction_report(base)
             print(f"Retraction metadata: {len(report['assertions'])} assertions across {len(report['records'])} works")
+            return 0
+        if args.literature_command == "align":
+            try:
+                payload = build_claim_literature_alignments(base)
+            except ValueError as exc:
+                print(f"error: {exc}")
+                return 1
+            pending = sum(item.get("status") == "pending_author_review" for item in payload["candidates"])
+            print(f"Literature alignments: {len(payload['candidates'])} candidates, {pending} pending author review")
+            return 0
+        if args.literature_command == "align-review":
+            try:
+                candidate = review_claim_literature_alignment(base, args.candidate_id, args.decision, args.relationship, args.note)
+            except ValueError as exc:
+                print(f"error: {exc}")
+                return 1
+            print(f"Alignment {candidate['candidate_id']}: {candidate['status']}")
             return 0
         if args.literature_command == "authorize-query":
             record = authorize_literature_query(base, args.provider, args.query, args.purpose, args.final_report_permission)

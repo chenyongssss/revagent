@@ -24,7 +24,7 @@ based on checked-in code and the current working tree, not on planned names:
 | 3. Pre-submission Review Engine | Prototype | Deterministic role-scoped text/theory/experiment reports, current-input isolation, merging, bounded standard/hard/nightmare rounds, author-gated follow-ups, a risk matrix, and advisory outputs exist. They are structural roles rather than independently validated semantic or cross-model reviewers; conflict resolution, real meta-review, budgets, and adversarial evaluation remain incomplete. |
 | 4. Computational-mathematics reviewer packs | Prototype with evaluation harness | Eight versioned guidance packs define claim types, assumptions, evidence expectations, objections, and stress tests. `benchmark-review-suite` now requires adjudicated labels from at least two pseudonymous annotators, rejects model self-scores, binds input hashes and pack/engine versions, and measures defect recall, high-risk recall, and false-pass rate globally/by role/by pack. Real independently labelled domain cases and published calibration results remain missing. |
 | 5. Rebuttal/resubmit loop | Advanced partial | Atomized parse/plan/draft/stress-test/finalize commands, author-written response binding, explicit atom approval, traceability fields, PASTE_READY regeneration, deterministic placeholder/future-commitment/tone-pattern lint, optional rulepack word limits, stress-report hashing, and isolated journal-to-journal resubmission records exist. Phrase lint is intentionally conservative and not factual verification; richer output, more complete comment atomization, and calibrated tone/commitment policies remain incomplete. |
-| 6. Literature and external providers | Advanced partial | Provider and one-use per-query consent, pre-network privacy gates, OpenAlex/Crossref/arXiv/DOI connectors, canonical hashes, normalized records, final-report permission filtering, conservative Crossref retraction assertions, and provenance-preserving citation/relationship graphs exist. Semantic Scholar, broader retraction coverage, claim alignment, and novelty-risk analysis remain missing. |
+| 6. Literature and external providers | Advanced partial | Consent-gated OpenAlex/Crossref/arXiv/DOI connectors, normalized records, conservative retraction assertions, provenance-preserving graphs, and deterministic claim-title alignment candidates with explicit author approval exist. Semantic Scholar, broader retraction coverage, independently evaluated alignment quality, and novelty-risk analysis remain missing. |
 | 7. Personal revision memory and local RAG | Minimal foundation | History import currently records only hashes, purpose, consent, and approval without storing raw content. Redaction preview, retention/deletion/export, searchable local indexing, rebuild, and retrieval controls do not exist. |
 | 8. General research project and local deployment | Partial foundation | SQLite runtime, local dashboard, worker/provider integrations, and durable revision memory exist. General research project/family/evolve workflows and the prescribed project layout do not. |
 | 9. Quality, privacy, and release gate | Partial | Synthetic benchmarks, privacy scanning, contribution data cards, independent-expert templates, and a fail-closed adjudicated reviewer-pack metric runner exist. Real calibrated multi-expert case sets and release gates per model/profile/pack remain missing. |
@@ -42,9 +42,8 @@ acceptance criteria by themselves.
    overflow/font/graphics inspection.
 3. Collect and adjudicate real domain-expert evaluation cases with the new
    reviewer-pack harness before expanding autonomy or claiming calibration.
-4. Add explicit claim-to-literature alignment candidates with author review;
-   defer novelty-risk conclusions until alignment quality is independently
-   evaluated.
+4. Build an adjudicated claim-alignment evaluation set and measure retrieval
+   quality before adding any novelty-risk summary.
 5. Defer searchable personal RAG until redaction, consent, retention, deletion,
    export, and rebuild semantics are specified and tested.
 

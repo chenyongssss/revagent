@@ -186,6 +186,92 @@ def build_retraction_report(base) -> dict:
     write_json(ws / "literature_retractions.json", report)
     return report
 
+_ALIGNMENT_STOPWORDS = {"a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "of", "on", "or", "that", "the", "this", "to", "we", "with"}
+
+def _alignment_tokens(text: str) -> set[str]:
+    return {token for token in re.findall(r"[a-z0-9]+", text.lower()) if len(token) > 2 and token not in _ALIGNMENT_STOPWORDS}
+
+def build_claim_literature_alignments(base) -> dict:
+    ws = load_config(base).workspace
+    manifest = read_json(ws / "paper_manifest.json", {})
+    if manifest.get("status") != "indexed":
+        raise ValueError("paper manifest is not indexed; run revagent paper-ingest")
+    if any(not claim.get("content_sha256") for claim in manifest.get("claims", [])):
+        raise ValueError("paper manifest lacks claim alignment fields; rerun revagent paper-ingest")
+    from .paper_ingestion import paper_manifest_is_stale
+    if paper_manifest_is_stale(base, manifest):
+        raise ValueError("paper manifest is stale; rerun revagent paper-ingest")
+    permitted = _permitted_cache_records(base)
+    literature_input_sha256 = _json_hash([{"provider": item.get("provider", ""), "authorization_id": item.get("authorization_id", ""),
+                                          "response_sha256": item.get("response_sha256", "")} for item in permitted])
+    records = []
+    for cache in permitted:
+        for item in cache.get("normalized_records", []):
+            if item.get("title"):
+                records.append((item, cache))
+    previous = read_json(ws / "literature_alignments.json", {"candidates": []})
+    prior = {item.get("candidate_id"): item for item in previous.get("candidates", [])}
+    candidates = []
+    for claim in manifest.get("claims", []):
+        claim_tokens = _alignment_tokens(str(claim.get("excerpt", "")))
+        if not claim_tokens:
+            continue
+        ranked = []
+        for record, cache in records:
+            title_tokens = _alignment_tokens(str(record.get("title", "")))
+            shared = sorted(claim_tokens & title_tokens)
+            if not shared:
+                continue
+            score = round(len(shared) / len(claim_tokens | title_tokens), 6)
+            ranked.append((score, _first(record.get("doi") or record.get("provider_id")), shared, record, cache))
+        for score, work_id, shared, record, cache in sorted(ranked, key=lambda x: (-x[0], x[1]))[:5]:
+            fingerprint = _json_hash({"claim": claim.get("content_sha256", ""), "work": work_id, "response": cache.get("response_sha256", "")})
+            candidate_id = "ALN-" + fingerprint[:10].upper()
+            candidate = {"candidate_id": candidate_id, "claim_id": claim.get("claim_id", ""), "claim_excerpt": claim.get("excerpt", ""),
+                         "claim_content_sha256": claim.get("content_sha256", ""), "work_id": work_id, "title": record.get("title", ""),
+                         "doi": record.get("doi", ""), "lexical_score": score, "shared_terms": shared, "status": "pending_author_review",
+                         "relationship": "unreviewed", "provenance": {"provider": cache.get("provider", ""), "authorization_id": cache.get("authorization_id", ""),
+                         "response_sha256": cache.get("response_sha256", "")}, "candidate_fingerprint": fingerprint,
+                         "limitation": "Lexical overlap is a discovery hint, not evidence that the work supports, contradicts, or establishes novelty for the claim."}
+            old = prior.get(candidate_id, {})
+            if old.get("candidate_fingerprint") == fingerprint and old.get("status") in {"approved", "rejected"}:
+                candidate.update({key: old[key] for key in ("status", "relationship", "author_note", "reviewed_at") if key in old})
+            candidates.append(candidate)
+    payload = {"version": 1, "generated_at": now_iso(), "paper_input_fingerprint": manifest.get("input_fingerprint", ""),
+               "literature_input_sha256": literature_input_sha256,
+               "candidates": sorted(candidates, key=lambda x: (x["claim_id"], -x["lexical_score"], x["work_id"])),
+               "limitations": ["Candidates use deterministic title/claim lexical overlap only.", "Every relationship requires author review; no novelty conclusion is generated."]}
+    write_json(ws / "literature_alignments.json", payload)
+    return payload
+
+def claim_literature_alignments_are_stale(base, payload: dict | None = None) -> bool:
+    ws = load_config(base).workspace
+    payload = payload if payload is not None else read_json(ws / "literature_alignments.json", {})
+    if not payload.get("generated_at"):
+        return False
+    manifest = read_json(ws / "paper_manifest.json", {})
+    current_literature = _json_hash([{"provider": item.get("provider", ""), "authorization_id": item.get("authorization_id", ""),
+                                     "response_sha256": item.get("response_sha256", "")} for item in _permitted_cache_records(base)])
+    return payload.get("paper_input_fingerprint") != manifest.get("input_fingerprint") or payload.get("literature_input_sha256") != current_literature
+
+def review_claim_literature_alignment(base, candidate_id: str, decision: str, relationship: str, note: str) -> dict:
+    if decision not in {"approve", "reject"}: raise ValueError("decision must be approve or reject")
+    if not note.strip(): raise ValueError("author review requires a substantive note")
+    allowed = {"supports", "contrasts", "background", "method", "unrelated"}
+    if decision == "approve" and relationship not in allowed - {"unrelated"}:
+        raise ValueError("approved alignment requires supports, contrasts, background, or method relationship")
+    ws = load_config(base).workspace
+    payload = read_json(ws / "literature_alignments.json", {"candidates": []})
+    if claim_literature_alignments_are_stale(base, payload):
+        raise ValueError("literature alignments are stale; rerun revagent literature align")
+    for candidate in payload.get("candidates", []):
+        if candidate.get("candidate_id") == candidate_id:
+            candidate.update({"status": "approved" if decision == "approve" else "rejected", "relationship": relationship if decision == "approve" else "unrelated",
+                              "author_note": note.strip(), "reviewed_at": now_iso()})
+            write_json(ws / "literature_alignments.json", payload)
+            return candidate
+    raise ValueError(f"unknown literature alignment candidate {candidate_id}")
+
 def literature_status(base) -> dict:
     ws = load_config(base).workspace
     consent = read_json(ws / "literature_consent.json", {"authorizations": []})
