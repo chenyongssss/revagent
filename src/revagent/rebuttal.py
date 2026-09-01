@@ -1,8 +1,42 @@
 """Local, author-gated rebuttal thread and draft scaffolding."""
 from __future__ import annotations
+import re
 
-from ._utils import load_config, now_iso, read_json, write_json, write_text
+from ._utils import file_sha256, load_config, now_iso, read_json, write_json, write_text
 from .profiles import load_profile, validate_rulepack
+
+
+PLACEHOLDER_MARKERS = ("AUTHOR MUST PROVIDE", "[TODO", "[INSERT", "TBD")
+FUTURE_COMMITMENT = re.compile(r"\b(?:we|the authors?)\s+(?:will|plan to|intend to|shall)\b|\bwill\s+(?:add|revise|perform|include|provide|correct)\b", re.I)
+DISCOURTEOUS = re.compile(r"\b(?:the reviewer is wrong|obviously the reviewer|the reviewer clearly misunderstood|nonsense|ridiculous)\b", re.I)
+
+
+def _words(text: str) -> int:
+    return len(re.findall(r"\b[\w'-]+\b", text, re.UNICODE))
+
+
+def _positive_limit(value: object) -> int:
+    try:
+        parsed = int(str(value))
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed > 0 else 0
+
+
+def _render_stress_test(report: dict) -> str:
+    lines = ["# Rebuttal Stress Test", "", f"- Status: `{'ready' if report['ok'] else 'author_review_required'}`", f"- Journal: `{report['journal']}`", f"- Total response words: {report['length']['total_words']}", "", "## Blocking Findings", ""]
+    categories = (
+        ("Open atoms", report["open_atoms"]), ("Traceability gaps", report["traceability_gaps"]),
+        ("Missing responses", report["response_gaps"]), ("Placeholders", report["placeholder_gaps"]),
+        ("Unresolved commitments", report["unresolved_commitments"]), ("Tone findings", report["tone_findings"]),
+    )
+    for label, values in categories:
+        lines.append(f"- {label}: {', '.join(values) if values else 'none'}")
+    for finding in report["length"]["findings"]:
+        lines.append(f"- Length `{finding['scope']}`: {finding['observed']} words exceeds {finding['limit']}")
+    lines.extend(["", "## Limitations", ""])
+    lines.extend(f"- {warning}" for warning in report["warnings"])
+    return "\n".join(lines) + "\n"
 
 
 def parse_rebuttal(base) -> dict:
@@ -26,16 +60,23 @@ def rebuttal_plan(base) -> dict:
     return result
 
 
+def _render_rebuttal_draft(result: dict) -> str:
+    lines = ["# PASTE_READY - Author Review Required", ""]
+    for thread in result.get("threads", {}).values():
+        for atom in thread["atoms"]:
+            response = str(atom.get("response_text", "")).strip()
+            rendered_response = response or "[AUTHOR MUST PROVIDE VERIFIED RESPONSE AND MANUSCRIPT LOCATION]"
+            lines.extend([f"## {atom['atom_id']}", "", f"Reviewer request: {atom['request']}", "", f"Author response: {rendered_response}", ""])
+            if atom.get("status") != "approved":
+                atom["status"] = "drafted_unapproved"
+    return "\n".join(lines)
+
+
 def rebuttal_draft(base) -> str:
     config = load_config(base)
     result = read_json(config.workspace / "rebuttal_threads.json", {})
-    lines = ["# PASTE_READY — Author Review Required", ""]
-    for thread in result.get("threads", {}).values():
-        for atom in thread["atoms"]:
-            lines.extend([f"## {atom['atom_id']}", "", f"Reviewer request: {atom['request']}", "", "Author response: [AUTHOR MUST PROVIDE VERIFIED RESPONSE AND MANUSCRIPT LOCATION]", ""])
-            atom["status"] = "drafted_unapproved"
+    draft = _render_rebuttal_draft(result)
     write_json(config.workspace / "rebuttal_threads.json", result)
-    draft = "\n".join(lines)
     write_text(config.workspace / "rebuttal_draft.md", draft)
     return draft
 
@@ -46,8 +87,32 @@ def rebuttal_stress_test(base) -> dict:
     open_atoms = [atom["atom_id"] for thread in result.get("threads", {}).values() for atom in thread["atoms"] if atom.get("status") != "approved"]
     atoms = [atom for thread in result.get("threads", {}).values() for atom in thread["atoms"]]
     trace_gaps = [atom["atom_id"] for atom in atoms if atom.get("status") == "approved" and (not atom.get("manuscript_locator") or not atom.get("evidence"))]
-    report = {"version": 1, "generated_at": now_iso(), "ok": not open_atoms and not trace_gaps, "open_atoms": open_atoms, "traceability_gaps": trace_gaps, "warnings": ["No fabricated results, facts, or commitments may be inserted by this tool.", "Tone, length, and commitment review remain author responsibilities; placeholders are deliberately preserved."]}
+    response_gaps = [atom["atom_id"] for atom in atoms if not str(atom.get("response_text", atom.get("approval_note", ""))).strip()]
+    placeholder_gaps = [atom["atom_id"] for atom in atoms if any(marker.lower() in str(atom.get("response_text", atom.get("approval_note", ""))).lower() for marker in PLACEHOLDER_MARKERS)]
+    unresolved_commitments = [atom["atom_id"] for atom in atoms if FUTURE_COMMITMENT.search(str(atom.get("response_text", atom.get("approval_note", ""))))]
+    tone_findings = [atom["atom_id"] for atom in atoms if DISCOURTEOUS.search(str(atom.get("response_text", atom.get("approval_note", ""))))]
+    profile = load_profile(config.journal, base)
+    rebuttal_rules = profile.get("rebuttal", {}) if isinstance(profile.get("rebuttal"), dict) else {}
+    max_words = _positive_limit(rebuttal_rules.get("max_words", 0))
+    max_words_per_response = _positive_limit(rebuttal_rules.get("max_words_per_response", 0))
+    atom_word_counts = {atom["atom_id"]: _words(str(atom.get("response_text", atom.get("approval_note", "")))) for atom in atoms}
+    total_words = sum(atom_word_counts.values())
+    length_findings = []
+    if max_words and total_words > max_words:
+        length_findings.append({"scope": "total", "observed": total_words, "limit": max_words})
+    if max_words_per_response:
+        length_findings.extend({"scope": atom_id, "observed": count, "limit": max_words_per_response} for atom_id, count in atom_word_counts.items() if count > max_words_per_response)
+    blocking = bool(open_atoms or trace_gaps or response_gaps or placeholder_gaps or unresolved_commitments or tone_findings or length_findings)
+    report = {
+        "version": 2, "generated_at": now_iso(), "ok": not blocking, "open_atoms": open_atoms,
+        "traceability_gaps": trace_gaps, "response_gaps": response_gaps, "placeholder_gaps": placeholder_gaps,
+        "unresolved_commitments": unresolved_commitments, "tone_findings": tone_findings,
+        "length": {"total_words": total_words, "atom_word_counts": atom_word_counts, "max_words": max_words, "max_words_per_response": max_words_per_response, "findings": length_findings},
+        "journal": config.journal,
+        "warnings": ["Commitment and tone matches are deterministic lint findings requiring author interpretation.", "Evidence references are traceability records; this tool does not verify that response facts or results are true."],
+    }
     write_json(config.workspace / "rebuttal_stress_test.json", report)
+    write_text(config.workspace / "rebuttal_stress_test.md", _render_stress_test(report))
     return report
 
 
@@ -58,12 +123,12 @@ def finalize_rebuttal(base, approved: bool) -> dict:
     stress = rebuttal_stress_test(base)
     if not stress["ok"]:
         raise ValueError("all rebuttal atoms require explicit author approval before finalization")
-    result = {"version": 1, "finalized_at": now_iso(), "author_approved": True}
+    result = {"version": 2, "finalized_at": now_iso(), "author_approved": True, "stress_test_sha256": file_sha256(config.workspace / "rebuttal_stress_test.json"), "limitations": ["Finalization records author approval and lint completion; it does not verify response facts, experiments, or mathematical claims."]}
     write_json(config.workspace / "rebuttal_final.json", result)
     return result
 
 
-def approve_rebuttal_atom(base, atom_id: str, note: str, manuscript_locator: str, evidence: str) -> dict:
+def approve_rebuttal_atom(base, atom_id: str, note: str, manuscript_locator: str, evidence: str, response_text: str = "") -> dict:
     if not manuscript_locator or not evidence:
         raise ValueError("approval requires manuscript locator and evidence reference")
     config = load_config(base)
@@ -71,8 +136,13 @@ def approve_rebuttal_atom(base, atom_id: str, note: str, manuscript_locator: str
     for thread in payload.get("threads", {}).values():
         for atom in thread.get("atoms", []):
             if atom.get("atom_id") == atom_id:
-                atom.update({"status": "approved", "author_approval": "approved", "approval_note": note, "manuscript_locator": manuscript_locator, "evidence": evidence, "approved_at": now_iso()})
+                response = response_text.strip() or note.strip()
+                if not response:
+                    raise ValueError("approval requires response text or a substantive approval note")
+                atom.update({"status": "approved", "author_approval": "approved", "approval_note": note, "response_text": response, "manuscript_locator": manuscript_locator, "evidence": evidence, "approved_at": now_iso()})
                 write_json(config.workspace / "rebuttal_threads.json", payload)
+                write_text(config.workspace / "rebuttal_draft.md", _render_rebuttal_draft(payload))
+                write_json(config.workspace / "rebuttal_final.json", {"version": 2, "status": "invalidated_by_atom_update", "invalidated_at": now_iso()})
                 return atom
     raise ValueError(f"unknown rebuttal atom {atom_id}")
 

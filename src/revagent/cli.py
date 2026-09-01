@@ -189,6 +189,7 @@ def build_parser() -> argparse.ArgumentParser:
     rebuttal_approve.add_argument("--note", required=True)
     rebuttal_approve.add_argument("--manuscript-locator", required=True)
     rebuttal_approve.add_argument("--evidence", required=True)
+    rebuttal_approve.add_argument("--response-file", help="Author-written response text for deterministic linting; defaults to --note.")
     rebuttal_resubmit = rebuttal_sub.add_parser("resubmit")
     rebuttal_resubmit.add_argument("--from", dest="source_journal", required=True)
     rebuttal_resubmit.add_argument("--to", dest="target_journal", required=True)
@@ -779,8 +780,9 @@ def main(argv: list[str] | None = None) -> int:
             print("Rebuttal stress test: " + ("ready" if result["ok"] else "author review required"))
         elif args.rebuttal_command == "approve":
             try:
-                approve_rebuttal_atom(base, args.atom_id, args.note, args.manuscript_locator, args.evidence)
-            except ValueError as exc:
+                response_text = Path(args.response_file).read_text(encoding="utf-8") if args.response_file else ""
+                approve_rebuttal_atom(base, args.atom_id, args.note, args.manuscript_locator, args.evidence, response_text)
+            except (OSError, ValueError) as exc:
                 print(f"error: {exc}")
                 return 1
             print(f"Approved rebuttal atom {args.atom_id}")

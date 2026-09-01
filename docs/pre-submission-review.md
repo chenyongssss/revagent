@@ -47,6 +47,17 @@ high-risk recall, and false-pass rate globally, by role, and by reviewer pack.
 The records do not prove annotator expertise or independence and are not a
 release calibration without the documented human protocol.
 
+## Rebuttal linting
+
+Use `rebuttal approve ... --response-file PATH` to bind author-written response
+text to an atom. `rebuttal stress-test` then checks atom coverage, manuscript
+and evidence locators, unresolved placeholders, future-tense commitments,
+several clearly discourteous phrases, and configured length limits. Directory
+rulepacks may define positive integer `max_words` and
+`max_words_per_response` values in `rebuttal.yaml`; absent or zero values mean
+that no verified limit is applied. These deterministic matches require author
+interpretation and never verify facts, experiments, or mathematical claims.
+
 ## Local journal rulepacks
 
 RevAgent prefers a project-local directory rulepack at

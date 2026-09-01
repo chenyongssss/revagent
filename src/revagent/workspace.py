@@ -300,8 +300,9 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     write_json(ws / "rebuttal_threads.json", {"version": 1, "threads": {}})
     write_text(ws / "rebuttal_threads.md", "# Rebuttal Threads\n\nNo rebuttal threads parsed yet.\n")
     write_text(ws / "rebuttal_draft.md", "# PASTE_READY — Author Review Required\n\nNo rebuttal draft generated yet.\n")
-    write_json(ws / "rebuttal_stress_test.json", {"version": 1, "ok": False, "open_atoms": []})
-    write_json(ws / "rebuttal_final.json", {"version": 1, "status": "not_finalized"})
+    write_json(ws / "rebuttal_stress_test.json", {"version": 2, "ok": False, "open_atoms": []})
+    write_text(ws / "rebuttal_stress_test.md", "# Rebuttal Stress Test\n\nNo rebuttal stress test run yet.\n")
+    write_json(ws / "rebuttal_final.json", {"version": 2, "status": "not_finalized"})
     write_json(ws / "literature_consent.json", {"version": 1, "authorizations": []})
     write_json(ws / "literature_report.json", {"version": 1, "availability": "not_generated"})
     write_json(ws / "literature_query_authorizations.json", {"version": 1, "authorizations": []})
@@ -382,6 +383,7 @@ def schema_markdown() -> str:
             "- `review_engine.json`: bounded review-round policy and author-pause history.",
             "- `review_followups.json` / `review_followups.md`: bounded high-risk verification tasks, author-gated and never auto-executed.",
             "- `review_outputs.json` / `review_outputs.md`: advisory editor summary, reviewer report, and author action list.",
+            "- `rebuttal_stress_test.json` / `rebuttal_stress_test.md`: deterministic coverage, provenance, placeholder, commitment, tone-pattern, and configured-length lint; never factual verification.",
             "- `review_benchmark_report.json` / `review_benchmark_report.md`: deterministic role/pack metrics against locally adjudicated labels; never model self-scores or release calibration by themselves.",
             "- `artifact_registry.json`: generated registry of persisted JSON/YAML artifact formats, versions, hashes, ownership, migration path, and compatibility policy.",
             "- `candidate_edits.json`: proposed/edited/approved/rejected/blocked/applied manuscript edits with safe patch operations.",
@@ -521,8 +523,9 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "rebuttal_threads.json": {"version": 1, "threads": {}},
         "rebuttal_threads.md": "# Rebuttal Threads\n\nNo rebuttal threads parsed yet.\n",
         "rebuttal_draft.md": "# PASTE_READY — Author Review Required\n\nNo rebuttal draft generated yet.\n",
-        "rebuttal_stress_test.json": {"version": 1, "ok": False, "open_atoms": []},
-        "rebuttal_final.json": {"version": 1, "status": "not_finalized"},
+        "rebuttal_stress_test.json": {"version": 2, "ok": False, "open_atoms": []},
+        "rebuttal_stress_test.md": "# Rebuttal Stress Test\n\nNo rebuttal stress test run yet.\n",
+        "rebuttal_final.json": {"version": 2, "status": "not_finalized"},
         "literature_consent.json": {"version": 1, "authorizations": []},
         "literature_report.json": {"version": 1, "availability": "not_generated"},
         "literature_query_authorizations.json": {"version": 1, "authorizations": []},
@@ -817,6 +820,12 @@ def export_artifacts(base: Path) -> Path:
         "review_outputs.md",
         "review_benchmark_report.json",
         "review_benchmark_report.md",
+        "rebuttal_threads.json",
+        "rebuttal_threads.md",
+        "rebuttal_draft.md",
+        "rebuttal_stress_test.json",
+        "rebuttal_stress_test.md",
+        "rebuttal_final.json",
         "artifact_registry.json",
         "revision_plan.md",
         "response_letter.md",
