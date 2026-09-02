@@ -165,6 +165,21 @@ def test_claim_alignment_candidates_require_author_review_and_preserve_decision(
     assert regenerated["candidates"][0]["author_note"] == "Author checked the paper context."
 
 
+def test_claim_alignment_deduplicates_work_and_keeps_best_source(tmp_path: Path) -> None:
+    _alignment_workspace(tmp_path)
+    first = authorize_literature_query(tmp_path, "crossref", "first", "alignment", True)
+    second = authorize_literature_query(tmp_path, "crossref", "second", "alignment", True)
+    cache_literature_query(tmp_path, "crossref", "first", {"message": {"items": [
+        {"DOI": "10.1000/same", "title": ["Adaptive finite element"]},
+    ]}}, authorization=first)
+    best = cache_literature_query(tmp_path, "crossref", "second", {"message": {"items": [
+        {"DOI": "10.1000/same", "title": ["Adaptive finite element convergence for elliptic problems"]},
+    ]}}, authorization=second)
+    candidates = build_claim_literature_alignments(tmp_path)["candidates"]
+    assert len(candidates) == 1
+    assert candidates[0]["provenance"]["response_sha256"] == best["response_sha256"]
+
+
 def test_claim_alignment_rejects_stale_manifest(tmp_path: Path) -> None:
     _alignment_workspace(tmp_path)
     (tmp_path / "paper.tex").write_text("\\documentclass{article}\\begin{document}changed\\end{document}", encoding="utf-8")

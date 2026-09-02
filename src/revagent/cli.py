@@ -115,7 +115,7 @@ from .evolution import (
 from .project_runtime import attach_cycle_actor_bundle, attach_cycle_plan, attach_cycle_review, author_decision_console, authorize_remote, create_cycle_reviewer_session, evaluate_review_item, initialize_project_runtime, open_revision_cycle, project_status, record_cycle_author_escalation, record_cycle_author_gate, record_cycle_author_waiver, recover_project_runtime, reopen_revision_cycle, revision_cycle_status, run_project_cycle, service_health, serve_project, set_project_paused, stop_project_service
 from .review_workers import authorize_experiment, collect_review_worker, create_review_snapshot, plan_review_workers, run_authorized_experiment, start_review_worker
 from .review_rubric import run_review_rubric
-from .benchmark import assess_shadow_scores, generate_synthetic_catalog, record_shadow_expert_scores, register_shadow_benchmark, run_benchmark, run_review_benchmark_suite
+from .benchmark import assess_shadow_scores, generate_synthetic_catalog, record_shadow_expert_scores, register_shadow_benchmark, run_alignment_benchmark_suite, run_benchmark, run_review_benchmark_suite
 from .supervisor import build_supervisor_feedback, build_supervisor_plan, build_supervisor_workers, get_supervisor_observations, observe_supervisor_workers, render_supervisor_feedback, render_supervisor_observations, render_supervisor_plan, render_supervisor_runs, render_supervisor_workers, run_supervisor_loop
 from .workspace import (
     clean_workspace,
@@ -420,6 +420,8 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_run.add_argument("--fixture", required=True)
     benchmark_review = sub.add_parser("benchmark-review-suite", help="Measure reviewer roles and packs against adjudicated local labels.")
     benchmark_review.add_argument("--suite", required=True)
+    benchmark_alignment = sub.add_parser("benchmark-alignment-suite", help="Measure claim-title retrieval against adjudicated local labels.")
+    benchmark_alignment.add_argument("--suite", required=True)
     benchmark_catalog = sub.add_parser("benchmark-synthetic-catalog", help="Generate a text-free local catalog of at least 200 synthetic evaluation fixtures.")
     benchmark_catalog.add_argument("--count", type=int, default=200)
     benchmark_shadow = sub.add_parser("benchmark-shadow", help="Register a local-only historical shadow benchmark without copying source text.")
@@ -1291,6 +1293,14 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(f"error: {exc}")
             return 1
+        return 0
+    if args.command == "benchmark-alignment-suite":
+        try:
+            report = run_alignment_benchmark_suite(base, Path(args.suite))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(f"Alignment benchmark: recall@5={report['metrics']['recall_at_5']:.3f}, MRR={report['metrics']['mean_reciprocal_rank']:.3f}")
         return 0
     if args.command == "benchmark-shadow":
         try:

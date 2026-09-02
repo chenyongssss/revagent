@@ -191,6 +191,21 @@ _ALIGNMENT_STOPWORDS = {"a", "an", "and", "are", "as", "at", "be", "by", "for", 
 def _alignment_tokens(text: str) -> set[str]:
     return {token for token in re.findall(r"[a-z0-9]+", text.lower()) if len(token) > 2 and token not in _ALIGNMENT_STOPWORDS}
 
+def rank_literature_alignment_records(claim_excerpt: str, records: list[dict], limit: int = 5) -> list[dict]:
+    claim_tokens = _alignment_tokens(claim_excerpt)
+    best_by_work: dict[str, dict] = {}
+    for record_index, record in enumerate(records):
+        title_tokens = _alignment_tokens(str(record.get("title", "")))
+        shared = sorted(claim_tokens & title_tokens)
+        work_id = _first(record.get("doi") or record.get("provider_id") or record.get("work_id"))
+        if shared and work_id:
+            candidate = {"work_id": work_id, "title": record.get("title", ""), "record_index": record_index,
+                         "lexical_score": round(len(shared) / len(claim_tokens | title_tokens), 6), "shared_terms": shared}
+            current = best_by_work.get(work_id)
+            if current is None or candidate["lexical_score"] > current["lexical_score"]:
+                best_by_work[work_id] = candidate
+    return sorted(best_by_work.values(), key=lambda item: (-item["lexical_score"], item["work_id"]))[:limit]
+
 def build_claim_literature_alignments(base) -> dict:
     ws = load_config(base).workspace
     manifest = read_json(ws / "paper_manifest.json", {})
@@ -216,15 +231,9 @@ def build_claim_literature_alignments(base) -> dict:
         claim_tokens = _alignment_tokens(str(claim.get("excerpt", "")))
         if not claim_tokens:
             continue
-        ranked = []
-        for record, cache in records:
-            title_tokens = _alignment_tokens(str(record.get("title", "")))
-            shared = sorted(claim_tokens & title_tokens)
-            if not shared:
-                continue
-            score = round(len(shared) / len(claim_tokens | title_tokens), 6)
-            ranked.append((score, _first(record.get("doi") or record.get("provider_id")), shared, record, cache))
-        for score, work_id, shared, record, cache in sorted(ranked, key=lambda x: (-x[0], x[1]))[:5]:
+        for ranked in rank_literature_alignment_records(str(claim.get("excerpt", "")), [item[0] for item in records]):
+            score, work_id, shared = ranked["lexical_score"], ranked["work_id"], ranked["shared_terms"]
+            record, cache = records[ranked["record_index"]]
             fingerprint = _json_hash({"claim": claim.get("content_sha256", ""), "work": work_id, "response": cache.get("response_sha256", "")})
             candidate_id = "ALN-" + fingerprint[:10].upper()
             candidate = {"candidate_id": candidate_id, "claim_id": claim.get("claim_id", ""), "claim_excerpt": claim.get("excerpt", ""),

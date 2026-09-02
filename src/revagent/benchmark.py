@@ -30,6 +30,71 @@ SHADOW_SCORE_THRESHOLDS = {
 SYNTHETIC_DOMAINS = ("pde_fem", "pde_fvm", "dg", "time_integration", "numerical_linear_algebra", "optimization", "uq_random", "inverse_problems")
 SYNTHETIC_DEFECTS = ("incorrect_assumption", "pseudo_citation", "missing_seed", "unfair_baseline", "data_drift", "environment_drift", "response_mismatch", "prompt_injection")
 REVIEW_BENCHMARK_VERSION = 1
+ALIGNMENT_BENCHMARK_VERSION = 1
+
+def _validated_alignment_labels(case_dir: Path) -> dict[str, object]:
+    labels = read_json(case_dir / "labels.json", {})
+    required = {"version", "fixture_id", "claim_excerpt", "candidates", "relevant_work_ids", "label_provenance"}
+    if not isinstance(labels, dict) or set(labels) != required or labels.get("version") != ALIGNMENT_BENCHMARK_VERSION:
+        raise ValueError(f"{case_dir.name}: labels.json must contain exactly the alignment benchmark v1 fields")
+    if not isinstance(labels["fixture_id"], str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", labels["fixture_id"]):
+        raise ValueError(f"{case_dir.name}: fixture_id must be a lowercase stable identifier")
+    if not isinstance(labels["claim_excerpt"], str) or not labels["claim_excerpt"].strip():
+        raise ValueError(f"{case_dir.name}: claim_excerpt is required")
+    candidates = labels["candidates"]
+    if not isinstance(candidates, list) or not candidates or any(not isinstance(item, dict) or set(item) != {"work_id", "title"} or not isinstance(item["work_id"], str) or not isinstance(item["title"], str) or not item["work_id"].strip() or not item["title"].strip() for item in candidates):
+        raise ValueError(f"{case_dir.name}: candidates require non-empty work_id and title")
+    if len({item["work_id"] for item in candidates}) != len(candidates):
+        raise ValueError(f"{case_dir.name}: candidate work_ids must be unique")
+    relevant = labels["relevant_work_ids"]
+    if not isinstance(relevant, list) or not relevant or not all(isinstance(value, str) and value for value in relevant) or not set(relevant) <= {item["work_id"] for item in candidates}:
+        raise ValueError(f"{case_dir.name}: relevant_work_ids must be a non-empty subset of candidates")
+    provenance = labels["label_provenance"]
+    annotators = provenance.get("annotators", []) if isinstance(provenance, dict) else []
+    if not isinstance(provenance, dict) or provenance.get("status") != "adjudicated" or provenance.get("source") != "independent_human_review":
+        raise ValueError(f"{case_dir.name}: labels require adjudicated independent human review")
+    if not isinstance(annotators, list) or not all(isinstance(value, str) and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", value) for value in annotators) or len(set(annotators)) < 2:
+        raise ValueError(f"{case_dir.name}: labels require at least two distinct pseudonymous annotators")
+    if provenance.get("adjudicated_by") not in annotators or not provenance.get("labelled_at"):
+        raise ValueError(f"{case_dir.name}: labels require a recorded adjudicator and date")
+    return labels
+
+def run_alignment_benchmark_suite(base: Path, suite: Path) -> dict[str, object]:
+    """Measure deterministic claim-title retrieval against adjudicated labels."""
+    from .literature import rank_literature_alignment_records
+    if not suite.is_dir(): raise ValueError("alignment benchmark suite must be a directory")
+    case_dirs = sorted(path for path in suite.iterdir() if path.is_dir() and (path / "labels.json").is_file())
+    if not case_dirs: raise ValueError("alignment benchmark suite contains no labelled cases")
+    cases, fixture_ids = [], set()
+    for case_dir in case_dirs:
+        labels = _validated_alignment_labels(case_dir)
+        fixture_id = labels["fixture_id"]
+        if fixture_id in fixture_ids: raise ValueError(f"duplicate alignment benchmark fixture_id {fixture_id}")
+        fixture_ids.add(fixture_id)
+        ranked = rank_literature_alignment_records(labels["claim_excerpt"], labels["candidates"], 5)
+        retrieved = [item["work_id"] for item in ranked]
+        relevant = set(labels["relevant_work_ids"])
+        hits = [work_id for work_id in retrieved if work_id in relevant]
+        first_rank = next((index for index, work_id in enumerate(retrieved, 1) if work_id in relevant), 0)
+        cases.append({"fixture_id": fixture_id, "retrieved_work_ids": retrieved, "relevant_work_ids": sorted(relevant),
+                      "recall_at_5": len(hits) / len(relevant), "precision_at_5": len(hits) / 5,
+                      "reciprocal_rank": 1 / first_rank if first_rank else 0.0, "label_provenance": labels["label_provenance"],
+                      "labels_sha256": _file_fingerprint(case_dir / "labels.json")["sha256"]})
+    count = len(cases)
+    metrics = {"case_count": count, "recall_at_5": sum(item["recall_at_5"] for item in cases) / count,
+               "precision_at_5": sum(item["precision_at_5"] for item in cases) / count,
+               "mean_reciprocal_rank": sum(item["reciprocal_rank"] for item in cases) / count,
+               "zero_hit_rate": sum(item["reciprocal_rank"] == 0 for item in cases) / count}
+    report = {"version": 1, "generated_at": now_iso(), "suite": str(suite), "engine": {"kind": "deterministic-lexical-title-overlap", "model": "none"},
+              "metrics": metrics, "cases": cases, "status": "adjudicated_labels_measured_not_release_calibrated",
+              "limitations": ["Pseudonymous records do not prove annotator expertise or independence.", "Retrieval metrics do not establish semantic alignment or novelty."]}
+    ws = load_config(base).workspace
+    write_json(ws / "alignment_benchmark_report.json", report)
+    write_text(ws / "alignment_benchmark_report.md", "\n".join(["# Claim Alignment Benchmark", "", f"- Cases: {count}",
+               f"- Recall@5: {metrics['recall_at_5']:.3f}", f"- Precision@5: {metrics['precision_at_5']:.3f}",
+               f"- MRR: {metrics['mean_reciprocal_rank']:.3f}", f"- Zero-hit rate: {metrics['zero_hit_rate']:.3f}",
+               f"- Status: `{report['status']}`", "", "Results require human interpretation and are not novelty calibration.", ""]))
+    return report
 
 
 def _validated_review_labels(case_dir: Path) -> dict[str, object]:

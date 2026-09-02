@@ -96,6 +96,13 @@ or rejected. Approval records a relationship (`supports`, `contrasts`,
 `background`, or `method`) and an author note; the score itself is never a
 semantic judgment or novelty assessment.
 
+`revagent benchmark-alignment-suite --suite PATH` evaluates the deterministic
+ranker against local adjudicated fixtures. Labels require at least two distinct
+pseudonymous annotators, an adjudicator, and independent-human-review
+provenance. Reports bind label hashes and measure recall@5, precision@5, mean
+reciprocal rank, and zero-hit rate. These measurements are not release or
+novelty calibration.
+
 ## Local journal rulepacks
 
 RevAgent prefers a project-local directory rulepack at
