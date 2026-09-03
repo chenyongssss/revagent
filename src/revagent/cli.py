@@ -76,6 +76,7 @@ from .alignment_intake import adjudicate_alignment_case, annotate_alignment_case
 from .cockpit import write_author_cockpit
 from .pre_submission_review import build_pre_submission_review, load_pre_submission_review, pre_submission_review_is_stale, render_pre_submission_review
 from .paper_ingestion import build_paper_manifest, render_paper_manifest
+from .paper_evidence import bind_experiment_evidence, review_claim_dependency
 from .pre_submission_engine import ROLES, authorize_followup, merge_role_reports, run_review_round, run_role_review
 from .reviewer_packs import available_reviewer_packs
 from .rebuttal import approve_rebuttal_atom, finalize_rebuttal, parse_rebuttal, rebuttal_draft, rebuttal_plan, rebuttal_stress_test, resubmit_rebuttal
@@ -189,6 +190,10 @@ def build_parser() -> argparse.ArgumentParser:
     cockpit.add_argument("--lang", choices=["en", "zh"], default="en")
     review_paper = sub.add_parser("review-paper", help="Run a local deterministic advisory pre-submission review.")
     review_paper.add_argument("--journal", help="Optional directory rulepack or legacy flat journal profile override.")
+    dependency_review = sub.add_parser("paper-dependency-review", help="Record a human semantic assessment of a structural claim dependency.")
+    dependency_review.add_argument("claim_id"); dependency_review.add_argument("dependency_id"); dependency_review.add_argument("--reviewer", required=True); dependency_review.add_argument("--decision", choices=("supported", "unsupported", "uncertain"), required=True); dependency_review.add_argument("--note", required=True)
+    evidence_bind = sub.add_parser("paper-experiment-bind", help="Hash-bind a recorded experiment artifact to a current paper claim.")
+    evidence_bind.add_argument("claim_id"); evidence_bind.add_argument("item_id"); evidence_bind.add_argument("--artifact", required=True); evidence_bind.add_argument("--note", required=True)
     sub.add_parser("review-status", help="Show the latest local advisory pre-submission review.")
     sub.add_parser("paper-ingest", help="Create a versioned local source/PDF paper manifest.")
     review_role = sub.add_parser("review-role", help="Generate one role-scoped local advisory structural report.")
@@ -820,6 +825,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}")
             return 1
         return 0
+    if args.command == "paper-dependency-review":
+        try: record = review_claim_dependency(base, args.claim_id, args.dependency_id, args.reviewer, args.decision, args.note)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(f"Reviewed {record['claim_id']} dependency on {record['dependency_id']}: {record['decision']}"); return 0
+    if args.command == "paper-experiment-bind":
+        try: record = bind_experiment_evidence(base, args.claim_id, args.item_id, args.artifact, args.note)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(f"Bound {record['artifact_path']} to {record['claim_id']}"); return 0
     if args.command == "review-role":
         report = run_role_review(base, args.role, args.pack)
         print(f"Generated {report['role']} report with {len(report['issues'])} advisory issue(s)")

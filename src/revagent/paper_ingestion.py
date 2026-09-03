@@ -41,7 +41,7 @@ def _run_local_tool(command: list[str]) -> subprocess.CompletedProcess[str] | No
 
 def _pdf_observations(pdf_path: Path) -> dict[str, object]:
     if not pdf_path.exists():
-        return {"page_count": 0, "fonts": [], "rendered_inspection": {"status": "unavailable", "reason": "no bound PDF", "text_pages": [], "text_empty_pages": []}}
+        return {"page_count": 0, "fonts": [], "rendered_inspection": {"status": "unavailable", "reason": "no bound PDF", "text_pages": [], "text_empty_pages": [], "font_findings": [], "image_pages": [], "overflow_candidates": []}}
     data = pdf_path.read_bytes()
     fonts = sorted({item.decode("latin-1", errors="replace") for item in re.findall(rb"/BaseFont\s*/([^\s/]+)", data)})
     page_count = len(re.findall(rb"/Type\s*/Page\b", data))
@@ -62,6 +62,21 @@ def _pdf_observations(pdf_path: Path) -> dict[str, object]:
             text_pages.append({"page": page, "text_character_count": character_count})
             if character_count == 0:
                 text_empty_pages.append(page)
+    font_findings, image_pages, overflow_candidates = [], [], []
+    font_result = _run_local_tool(["pdffonts", str(pdf_path)])
+    if font_result is not None and font_result.returncode == 0:
+        for line in font_result.stdout.splitlines()[2:]:
+            columns = line.split()
+            if len(columns) >= 6 and columns[3].lower() == "no": font_findings.append({"font": columns[0], "issue": "not_embedded"})
+    image_result = _run_local_tool(["pdfimages", "-list", str(pdf_path)])
+    if image_result is not None and image_result.returncode == 0:
+        image_pages = sorted({int(match.group(1)) for line in image_result.stdout.splitlines() if (match := re.match(r"\s*(\d+)\s+\d+\s+", line))})
+    boxes = _run_local_tool(["pdftotext", "-bbox-layout", str(pdf_path), "-"])
+    if boxes is not None and boxes.returncode == 0:
+        for page_number, page_match in enumerate(re.finditer(r"<page\b[^>]*width=\"([\d.]+)\"[^>]*height=\"([\d.]+)\"[^>]*>(.*?)</page>", boxes.stdout, re.S), 1):
+            width, height, body = float(page_match.group(1)), float(page_match.group(2)), page_match.group(3)
+            outside = [word.group(0) for word in re.finditer(r"<word\b[^>]*xMin=\"(-?[\d.]+)\"[^>]*yMin=\"(-?[\d.]+)\"[^>]*xMax=\"([\d.]+)\"[^>]*yMax=\"([\d.]+)\"", body) if float(word.group(1)) < 0 or float(word.group(2)) < 0 or float(word.group(3)) > width or float(word.group(4)) > height]
+            if outside: overflow_candidates.append({"page": page_number, "outside_page_words": len(outside)})
     return {
         "page_count": page_count,
         "fonts": fonts,
@@ -70,6 +85,9 @@ def _pdf_observations(pdf_path: Path) -> dict[str, object]:
             "reason": "" if text_pages else "pdftotext unavailable or extraction failed",
             "text_pages": text_pages,
             "text_empty_pages": text_empty_pages,
+            "font_findings": font_findings,
+            "image_pages": image_pages,
+            "overflow_candidates": overflow_candidates,
             "limitation": "A text-empty page may contain graphics or inaccessible text and is not conclusively blank.",
         },
     }
@@ -187,6 +205,11 @@ def build_paper_manifest(base: Path) -> dict[str, object]:
     }
     bibliography = _bibliography_entries(config, index)
     claims, claim_evidence_graph = _claim_evidence_graph(config, index, pdf_path)
+    from .paper_evidence import current_paper_evidence
+    dependency_reviews, experiment_bindings = current_paper_evidence(base, claims)
+    for claim in claims:
+        claim["semantic_dependency_reviews"] = [item for item in dependency_reviews if item["claim_id"] == claim["claim_id"]]
+        claim["experiment_evidence"] = [item for item in experiment_bindings if item["claim_id"] == claim["claim_id"]]
     unsupported_claims = [claim for claim in claims if claim["evidence_state"] == "no_bound_proof"]
     checks = paper_structural_checks(config, index, pdf, bibliography)
     if unsupported_claims:
@@ -194,6 +217,9 @@ def build_paper_manifest(base: Path) -> dict[str, object]:
     empty_pages = pdf.get("rendered_inspection", {}).get("text_empty_pages", [])
     if empty_pages:
         checks.append({"category": "pdf_text_empty_page", "severity": "medium", "message": f"PDF page(s) {', '.join(map(str, empty_pages))} yielded no extractable text; inspect rendering manually.", "locations": [{"page": page} for page in empty_pages]})
+    rendered = pdf.get("rendered_inspection", {})
+    if rendered.get("font_findings"): checks.append({"category": "pdf_font_embedding", "severity": "high", "message": f"{len(rendered['font_findings'])} PDF font(s) appear not embedded.", "locations": rendered["font_findings"]})
+    if rendered.get("overflow_candidates"): checks.append({"category": "pdf_page_overflow", "severity": "high", "message": f"{len(rendered['overflow_candidates'])} PDF page(s) contain text boxes outside the page boundary.", "locations": rendered["overflow_candidates"]})
     manifest = {
         "version": PAPER_MANIFEST_VERSION,
         "generated_at": now_iso(),
@@ -204,6 +230,8 @@ def build_paper_manifest(base: Path) -> dict[str, object]:
         "index": {key: index[key] for key in ("sections", "environments", "citations", "bibliography", "dependency_map", "unresolved_refs", "potential_undefined_symbols", "warnings")},
         "claims": claims,
         "claim_evidence_graph": claim_evidence_graph,
+        "semantic_dependency_reviews": dependency_reviews,
+        "experiment_evidence_bindings": experiment_bindings,
         "bibliography_entries": bibliography,
         "checks": checks,
         "limitations": ["This manifest records local source and rendered-file observations only.", "Proof binding is structural proximity and LaTeX-reference analysis, not semantic proof verification.", "SyncTeX page mappings and extracted PDF text are tool observations and may be unavailable or incomplete.", "It does not establish theorem correctness, experiment validity, or submission readiness."],

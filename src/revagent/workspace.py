@@ -288,6 +288,7 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     write_text(ws / "pre_submission_review.md", "# Pre-submission Review\n\nNo pre-submission review run yet. Run `revagent review-paper`.\n")
     write_json(ws / "paper_manifest.json", {"version": 1, "status": "not_ingested"})
     write_text(ws / "paper_manifest.md", "# Paper Manifest\n\nNo paper ingestion run yet. Run `revagent paper-ingest`.\n")
+    write_json(ws / "paper_evidence_reviews.json", {"version": 1, "dependency_reviews": [], "experiment_bindings": []})
     write_json(ws / "review_reports.json", {"version": 1, "reports": {}})
     write_text(ws / "review_reports.md", "# Role-scoped Pre-submission Reports\n\nNo role reports run yet.\n")
     write_json(ws / "review_meta_report.json", {"version": 1, "status": "not_merged"})
@@ -522,6 +523,7 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "pre_submission_review.md": "# Pre-submission Review\n\nNo pre-submission review run yet. Run `revagent review-paper`.\n",
         "paper_manifest.json": {"version": 1, "status": "not_ingested"},
         "paper_manifest.md": "# Paper Manifest\n\nNo paper ingestion run yet. Run `revagent paper-ingest`.\n",
+        "paper_evidence_reviews.json": {"version": 1, "dependency_reviews": [], "experiment_bindings": []},
         "review_reports.json": {"version": 1, "reports": {}},
         "review_reports.md": "# Role-scoped Pre-submission Reports\n\nNo role reports run yet.\n",
         "review_meta_report.json": {"version": 1, "status": "not_merged"},

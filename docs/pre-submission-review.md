@@ -37,6 +37,14 @@ page may contain graphics or inaccessible text and is only a prompt for manual
 inspection. Neither structural proof binding nor a source-to-page mapping
 establishes semantic correctness.
 
+`paper-dependency-review` records a pseudonymous human assessment of a
+structurally detected claim dependency. `paper-experiment-bind` binds a current,
+previously recorded experiment artifact hash to a current claim hash. Changed
+claim or artifact content invalidates the binding. Neither command confirms
+proof correctness or experimental validity. When installed, `pdffonts`,
+`pdfimages`, and `pdftotext -bbox-layout` add advisory observations for font
+embedding, image-bearing pages, and text boxes outside PDF page boundaries.
+
 ## Reviewer-pack evaluation
 
 `revagent benchmark-review-suite --suite PATH` measures deterministic reviewer

@@ -102,6 +102,12 @@ def test_rendered_pdf_and_synctex_observations_are_explicitly_advisory(tmp_path:
             return subprocess.CompletedProcess(command, 0, "Pages: 2\n", "")
         if command[0] == "synctex":
             return subprocess.CompletedProcess(command, 0, "Page:1\n", "")
+        if command[0] == "pdffonts":
+            return subprocess.CompletedProcess(command, 0, "name type encoding emb sub uni object ID\n----\nCMR10 Type1 Builtin no no yes 1 0\n", "")
+        if command[0] == "pdfimages":
+            return subprocess.CompletedProcess(command, 0, "page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio\n1 0 image 100 100 rgb 3 8 image no 2 0 72 72 1K 1%\n", "")
+        if "-bbox-layout" in command:
+            return subprocess.CompletedProcess(command, 0, '<page width="600" height="800"><word xMin="10" yMin="10" xMax="100" yMax="30">Claim</word></page>', "")
         page = command[command.index("-f") + 1]
         return subprocess.CompletedProcess(command, 0, "Rendered theorem" if page == "1" else " \n", "")
 
@@ -111,6 +117,9 @@ def test_rendered_pdf_and_synctex_observations_are_explicitly_advisory(tmp_path:
     rendered = manifest["compiled_pdf"]["rendered_inspection"]
     assert rendered["status"] == "observed"
     assert rendered["text_empty_pages"] == [2]
+    assert rendered["image_pages"] == [1]
+    assert rendered["font_findings"] == [{"font": "CMR10", "issue": "not_embedded"}]
+    assert any(check["category"] == "pdf_font_embedding" for check in manifest["checks"])
     assert manifest["claims"][0]["pdf_location"]["page"] == 1
     assert any(check["category"] == "pdf_text_empty_page" for check in manifest["checks"])
     assert any("not semantic proof verification" in limitation for limitation in manifest["limitations"])

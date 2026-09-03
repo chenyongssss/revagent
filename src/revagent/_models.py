@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 WORKSPACE = ".revagent"
-CURRENT_SCHEMA_VERSION = "45"
+CURRENT_SCHEMA_VERSION = "46"
 PLANNING_STATUSES = {"triaged", "planned", "drafted", "evidence_ready", "approved", "incorporated", "closed"}
 EXPERIMENT_CONTRACT_STATUSES = {"not_planned", "planned", "artifact_recorded", "incorporated"}
 SCHEMA_FILES = [
@@ -82,6 +82,7 @@ SCHEMA_FILES = [
     "pre_submission_review.md",
     "paper_manifest.json",
     "paper_manifest.md",
+    "paper_evidence_reviews.json",
     "review_reports.json",
     "review_reports.md",
     "review_meta_report.json",
