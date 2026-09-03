@@ -25,7 +25,7 @@ based on checked-in code and the current working tree, not on planned names:
 | 4. Computational-mathematics reviewer packs | Prototype with evaluation harness | Eight versioned guidance packs define claim types, assumptions, evidence expectations, objections, and stress tests. `benchmark-review-suite` now requires adjudicated labels from at least two pseudonymous annotators, rejects model self-scores, binds input hashes and pack/engine versions, and measures defect recall, high-risk recall, and false-pass rate globally/by role/by pack. Real independently labelled domain cases and published calibration results remain missing. |
 | 5. Rebuttal/resubmit loop | Advanced partial | Atomized parse/plan/draft/stress-test/finalize commands, author-written response binding, explicit atom approval, traceability fields, PASTE_READY regeneration, deterministic placeholder/future-commitment/tone-pattern lint, optional rulepack word limits, stress-report hashing, and isolated journal-to-journal resubmission records exist. Phrase lint is intentionally conservative and not factual verification; richer output, more complete comment atomization, and calibrated tone/commitment policies remain incomplete. |
 | 6. Literature and external providers | Advanced partial | Consent-gated providers, provenance-preserving metadata/graphs, author-gated alignments, adjudicated retrieval metrics, and a permission/deidentification-gated two-annotator intake/adjudication/export workflow exist. Actual independently labelled cases, Semantic Scholar, broader retraction coverage, and novelty-risk analysis remain missing. |
-| 7. Personal revision memory and local RAG | Minimal foundation | History import currently records only hashes, purpose, consent, and approval without storing raw content. Redaction preview, retention/deletion/export, searchable local indexing, rebuild, and retrieval controls do not exist. |
+| 7. Personal revision memory and local RAG | Advanced partial | History import stores only hashes until a local redaction preview is created; approval requires that preview. Retention rules, auditable deletion tombstones, approved-only export, SQLite FTS rebuild/search, source/preview hashes, and fail-closed indexing exist. Automated expiry enforcement and independently evaluated retrieval quality remain missing. |
 | 8. General research project and local deployment | Partial foundation | SQLite runtime, local dashboard, worker/provider integrations, and durable revision memory exist. General research project/family/evolve workflows and the prescribed project layout do not. |
 | 9. Quality, privacy, and release gate | Partial | Synthetic benchmarks, privacy scanning, contribution data cards, independent-expert templates, and a fail-closed adjudicated reviewer-pack metric runner exist. Real calibrated multi-expert case sets and release gates per model/profile/pack remain missing. |
 
@@ -44,8 +44,8 @@ acceptance criteria by themselves.
    reviewer-pack harness before expanding autonomy or claiming calibration.
 4. Use the human-gated intake workflow to collect actual independently
    adjudicated cases; publish measured quality before specifying novelty risk.
-5. Defer searchable personal RAG until redaction, consent, retention, deletion,
-   export, and rebuild semantics are specified and tested.
+5. Add automatic retention-expiry enforcement and an adjudicated memory
+   retrieval evaluation set before using history beyond local suggestions.
 
 ## Product Boundary
 

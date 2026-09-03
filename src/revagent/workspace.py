@@ -309,7 +309,7 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     write_json(ws / "literature_citation_graph.json", {"version": 1, "nodes": [], "edges": []})
     write_json(ws / "literature_retractions.json", {"version": 1, "records": [], "assertions": []})
     write_json(ws / "literature_alignments.json", {"version": 1, "candidates": []})
-    write_json(ws / "history_registry.json", {"version": 1, "records": []})
+    write_json(ws / "history_registry.json", {"version": 2, "records": []})
     write_json(ws / "review_benchmark_report.json", {"version": 1, "status": "not_run"})
     write_text(ws / "review_benchmark_report.md", "# Reviewer Pack Benchmark\n\nNo adjudicated review benchmark run yet.\n")
     write_json(ws / "alignment_benchmark_report.json", {"version": 1, "status": "not_run"})
@@ -538,7 +538,7 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "literature_citation_graph.json": {"version": 1, "nodes": [], "edges": []},
         "literature_retractions.json": {"version": 1, "records": [], "assertions": []},
         "literature_alignments.json": {"version": 1, "candidates": []},
-        "history_registry.json": {"version": 1, "records": []},
+        "history_registry.json": {"version": 2, "records": []},
         "review_benchmark_report.json": {"version": 1, "status": "not_run"},
         "review_benchmark_report.md": "# Reviewer Pack Benchmark\n\nNo adjudicated review benchmark run yet.\n",
         "alignment_benchmark_report.json": {"version": 1, "status": "not_run"},
@@ -577,6 +577,21 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
             literature_report.setdefault("retrieved_metadata", [])
             literature_report.setdefault("excluded_local_only_records", 0)
             write_json(literature_report_path, literature_report)
+            changed = True
+
+    history_registry_path = config.workspace / "history_registry.json"
+    history_registry = read_json(history_registry_path, {})
+    if history_registry.get("version") != 2:
+        actions.append("upgrade history_registry.json to version 2")
+        if not dry_run:
+            history_registry["version"] = 2
+            for record in history_registry.get("records", []):
+                record.setdefault("deidentification_status", "not_started")
+                record.setdefault("retention_rule", "")
+                record.setdefault("deletion_status", "active")
+                record.setdefault("raw_content_stored", False)
+                record["indexed"] = False
+            write_json(history_registry_path, history_registry)
             changed = True
 
     llm_drafts_path = config.workspace / "llm_drafts.json"

@@ -80,7 +80,7 @@ from .pre_submission_engine import ROLES, authorize_followup, merge_role_reports
 from .reviewer_packs import available_reviewer_packs
 from .rebuttal import approve_rebuttal_atom, finalize_rebuttal, parse_rebuttal, rebuttal_draft, rebuttal_plan, rebuttal_stress_test, resubmit_rebuttal
 from .literature import FETCH_PROVIDERS, PROVIDERS, authorize_literature_provider, authorize_literature_query, build_citation_graph, build_claim_literature_alignments, build_retraction_report, cache_literature_query, fetch_literature_provider, fetch_openalex, literature_provenance_report, literature_status, review_claim_literature_alignment
-from .history import approve_history, import_history
+from .history import approve_history, delete_history, export_history, import_history, rebuild_history_index, redact_history, search_history
 from .validation import doctor, validate_workspace
 from .external_agent import (
     external_agent_run_artifact,
@@ -247,6 +247,11 @@ def build_parser() -> argparse.ArgumentParser:
     history_import.add_argument("--purpose", required=True)
     history_approve = history_sub.add_parser("approve")
     history_approve.add_argument("history_id")
+    history_redact = history_sub.add_parser("redact"); history_redact.add_argument("history_id"); history_redact.add_argument("--source-file", required=True); history_redact.add_argument("--retention", choices=("30_days", "project_lifetime", "until_deleted"), required=True)
+    history_sub.add_parser("rebuild")
+    history_search = history_sub.add_parser("search"); history_search.add_argument("query"); history_search.add_argument("--limit", type=int, default=10)
+    history_delete = history_sub.add_parser("delete"); history_delete.add_argument("history_id"); history_delete.add_argument("--confirm", action="store_true")
+    history_export = history_sub.add_parser("export"); history_export.add_argument("target")
     review_authorize = sub.add_parser("review-followup-authorize", help="Authorize one bounded verification follow-up; this does not execute it.")
     review_authorize.add_argument("task_id")
     response_trace = sub.add_parser("response-trace", help="Build a local request-response-manuscript-evidence traceability report.")
@@ -919,11 +924,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "history":
         try:
-            record = import_history(base, Path(args.path), args.purpose) if args.history_command == "import" else approve_history(base, args.history_id)
-        except ValueError as exc:
+            if args.history_command == "import": record = import_history(base, Path(args.path), args.purpose); message = f"Registered history {record['history_id']}; raw content was not stored"
+            elif args.history_command == "redact": record = redact_history(base, args.history_id, Path(args.source_file), args.retention); message = f"Created redaction preview for {record['history_id']}"
+            elif args.history_command == "approve": record = approve_history(base, args.history_id); message = f"Approved redacted history {record['history_id']}"
+            elif args.history_command == "rebuild": result = rebuild_history_index(base); message = f"Rebuilt history index with {len(result['indexed_history_ids'])} records"
+            elif args.history_command == "search": print(json.dumps(search_history(base, args.query, args.limit), ensure_ascii=False, indent=2)); return 0
+            elif args.history_command == "delete": record = delete_history(base, args.history_id, args.confirm); message = f"Deleted stored preview for {record['history_id']}"
+            else: message = str(export_history(base, Path(args.target)))
+        except (ValueError, OSError) as exc:
             print(f"error: {exc}")
             return 1
-        print(f"Registered history {record['history_id']} with pending consent; raw content was not stored")
+        print(message)
         return 0
     if args.command == "review-followup-authorize":
         try:

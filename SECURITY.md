@@ -9,6 +9,9 @@
 - The persistent project runtime records task-scoped remote authorization locally; a provider/model/purpose/artifact-class authorization expires automatically and does not authorize unrelated tasks.
 - A semantic rubric authorization may transmit a complete project snapshot to the selected provider. It is one-use, expires automatically, and must be created explicitly for the matching review task.
 - It does not execute experiments by default.
+- Revision history remains local. Raw history is never copied into `.revagent`;
+  only an explicitly generated redaction preview can be approved, indexed, or
+  exported. Search results are suggestions and must not be copied automatically.
 - `revagent validate --compile` runs the configured LaTeX command locally. Use it only for trusted projects.
 - Do not run `revagent` on untrusted LaTeX projects without reviewing included scripts and TeX commands.
 
