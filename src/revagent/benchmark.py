@@ -9,6 +9,7 @@ import re
 import shutil
 import tempfile
 import itertools
+import sqlite3
 from pathlib import Path
 
 from ._utils import load_config, now_iso, read_json, write_json, write_text
@@ -31,6 +32,70 @@ SYNTHETIC_DOMAINS = ("pde_fem", "pde_fvm", "dg", "time_integration", "numerical_
 SYNTHETIC_DEFECTS = ("incorrect_assumption", "pseudo_citation", "missing_seed", "unfair_baseline", "data_drift", "environment_drift", "response_mismatch", "prompt_injection")
 REVIEW_BENCHMARK_VERSION = 1
 ALIGNMENT_BENCHMARK_VERSION = 1
+HISTORY_BENCHMARK_VERSION = 1
+
+def _validated_history_labels(case_dir: Path) -> dict[str, object]:
+    labels = read_json(case_dir / "labels.json", {})
+    required = {"version", "fixture_id", "query", "corpus", "relevant_history_ids", "label_provenance"}
+    if not isinstance(labels, dict) or set(labels) != required or labels.get("version") != HISTORY_BENCHMARK_VERSION:
+        raise ValueError(f"{case_dir.name}: labels.json must contain exactly the history retrieval benchmark v1 fields")
+    if not isinstance(labels["fixture_id"], str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", labels["fixture_id"]):
+        raise ValueError(f"{case_dir.name}: fixture_id must be a lowercase stable identifier")
+    if not isinstance(labels["query"], str) or not labels["query"].strip():
+        raise ValueError(f"{case_dir.name}: query is required")
+    corpus = labels["corpus"]
+    if not isinstance(corpus, list) or not corpus or any(not isinstance(item, dict) or set(item) != {"history_id", "purpose", "content"} or not all(isinstance(item[key], str) and item[key].strip() for key in item) for item in corpus):
+        raise ValueError(f"{case_dir.name}: corpus requires non-empty history_id, purpose, and content")
+    ids = [item["history_id"] for item in corpus]
+    if len(set(ids)) != len(ids): raise ValueError(f"{case_dir.name}: corpus history_ids must be unique")
+    relevant = labels["relevant_history_ids"]
+    if not isinstance(relevant, list) or not relevant or not all(isinstance(value, str) and value for value in relevant) or not set(relevant) <= set(ids):
+        raise ValueError(f"{case_dir.name}: relevant_history_ids must be a non-empty subset of corpus")
+    provenance = labels["label_provenance"]
+    annotators = provenance.get("annotators", []) if isinstance(provenance, dict) else []
+    if not isinstance(provenance, dict) or provenance.get("status") != "adjudicated" or provenance.get("source") != "independent_human_review":
+        raise ValueError(f"{case_dir.name}: labels require adjudicated independent human review")
+    if not isinstance(annotators, list) or not all(isinstance(value, str) and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", value) for value in annotators) or len(set(annotators)) < 2:
+        raise ValueError(f"{case_dir.name}: labels require at least two distinct pseudonymous annotators")
+    if provenance.get("adjudicated_by") not in annotators or not provenance.get("labelled_at"):
+        raise ValueError(f"{case_dir.name}: labels require a recorded adjudicator and date")
+    return labels
+
+def _rank_history_fixture(query: str, corpus: list[dict[str, str]], limit: int = 5) -> list[str]:
+    con = sqlite3.connect(":memory:")
+    try:
+        con.execute("CREATE VIRTUAL TABLE history_fts USING fts5(history_id UNINDEXED, purpose, content)")
+        con.executemany("INSERT INTO history_fts VALUES (?, ?, ?)", [(item["history_id"], item["purpose"], item["content"]) for item in corpus])
+        return [row[0] for row in con.execute("SELECT history_id FROM history_fts WHERE history_fts MATCH ? ORDER BY bm25(history_fts),history_id LIMIT ?", (query, limit))]
+    except sqlite3.OperationalError as exc:
+        raise ValueError(f"invalid history benchmark query: {exc}") from exc
+    finally: con.close()
+
+def run_history_benchmark_suite(base: Path, suite: Path) -> dict[str, object]:
+    """Measure the production FTS retrieval strategy against adjudicated labels."""
+    if not suite.is_dir(): raise ValueError("history retrieval benchmark suite must be a directory")
+    case_dirs = sorted(path for path in suite.iterdir() if path.is_dir() and (path / "labels.json").is_file())
+    if not case_dirs: raise ValueError("history retrieval benchmark suite contains no labelled cases")
+    cases, fixture_ids = [], set()
+    for case_dir in case_dirs:
+        labels = _validated_history_labels(case_dir); fixture_id = labels["fixture_id"]
+        if fixture_id in fixture_ids: raise ValueError(f"duplicate history retrieval benchmark fixture_id {fixture_id}")
+        fixture_ids.add(fixture_id); retrieved = _rank_history_fixture(labels["query"], labels["corpus"])
+        relevant = set(labels["relevant_history_ids"]); hits = [value for value in retrieved if value in relevant]
+        first_rank = next((index for index, value in enumerate(retrieved, 1) if value in relevant), 0)
+        cases.append({"fixture_id": fixture_id, "retrieved_history_ids": retrieved, "relevant_history_ids": sorted(relevant),
+                      "recall_at_5": len(hits) / len(relevant), "precision_at_5": len(hits) / 5,
+                      "reciprocal_rank": 1 / first_rank if first_rank else 0.0, "label_provenance": labels["label_provenance"],
+                      "labels_sha256": _file_fingerprint(case_dir / "labels.json")["sha256"]})
+    count = len(cases); metrics = {"case_count": count, "recall_at_5": sum(x["recall_at_5"] for x in cases) / count,
+        "precision_at_5": sum(x["precision_at_5"] for x in cases) / count, "mean_reciprocal_rank": sum(x["reciprocal_rank"] for x in cases) / count,
+        "zero_hit_rate": sum(x["reciprocal_rank"] == 0 for x in cases) / count}
+    report = {"version": 1, "generated_at": now_iso(), "suite": str(suite), "engine": {"kind": "sqlite-fts5-bm25", "model": "none"},
+              "metrics": metrics, "cases": cases, "status": "adjudicated_labels_measured_not_release_calibrated",
+              "limitations": ["Fixture text must already be deidentified and authorized for evaluation.", "Pseudonymous records do not prove annotator expertise or independence.", "Retrieval metrics do not establish semantic equivalence."]}
+    ws = load_config(base).workspace; write_json(ws / "history_benchmark_report.json", report)
+    write_text(ws / "history_benchmark_report.md", "\n".join(["# History Retrieval Benchmark", "", f"- Cases: {count}", f"- Recall@5: {metrics['recall_at_5']:.3f}", f"- Precision@5: {metrics['precision_at_5']:.3f}", f"- MRR: {metrics['mean_reciprocal_rank']:.3f}", f"- Zero-hit rate: {metrics['zero_hit_rate']:.3f}", f"- Status: `{report['status']}`", "", "Results require human interpretation and are not release calibration.", ""]))
+    return report
 
 def _validated_alignment_labels(case_dir: Path) -> dict[str, object]:
     labels = read_json(case_dir / "labels.json", {})

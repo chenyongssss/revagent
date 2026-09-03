@@ -80,7 +80,7 @@ from .pre_submission_engine import ROLES, authorize_followup, merge_role_reports
 from .reviewer_packs import available_reviewer_packs
 from .rebuttal import approve_rebuttal_atom, finalize_rebuttal, parse_rebuttal, rebuttal_draft, rebuttal_plan, rebuttal_stress_test, resubmit_rebuttal
 from .literature import FETCH_PROVIDERS, PROVIDERS, authorize_literature_provider, authorize_literature_query, build_citation_graph, build_claim_literature_alignments, build_retraction_report, cache_literature_query, fetch_literature_provider, fetch_openalex, literature_provenance_report, literature_status, review_claim_literature_alignment
-from .history import approve_history, delete_history, export_history, import_history, rebuild_history_index, redact_history, search_history
+from .history import approve_history, delete_history, enforce_history_retention, export_history, import_history, rebuild_history_index, redact_history, search_history
 from .validation import doctor, validate_workspace
 from .external_agent import (
     external_agent_run_artifact,
@@ -116,7 +116,7 @@ from .evolution import (
 from .project_runtime import attach_cycle_actor_bundle, attach_cycle_plan, attach_cycle_review, author_decision_console, authorize_remote, create_cycle_reviewer_session, evaluate_review_item, initialize_project_runtime, open_revision_cycle, project_status, record_cycle_author_escalation, record_cycle_author_gate, record_cycle_author_waiver, recover_project_runtime, reopen_revision_cycle, revision_cycle_status, run_project_cycle, service_health, serve_project, set_project_paused, stop_project_service
 from .review_workers import authorize_experiment, collect_review_worker, create_review_snapshot, plan_review_workers, run_authorized_experiment, start_review_worker
 from .review_rubric import run_review_rubric
-from .benchmark import assess_shadow_scores, generate_synthetic_catalog, record_shadow_expert_scores, register_shadow_benchmark, run_alignment_benchmark_suite, run_benchmark, run_review_benchmark_suite
+from .benchmark import assess_shadow_scores, generate_synthetic_catalog, record_shadow_expert_scores, register_shadow_benchmark, run_alignment_benchmark_suite, run_benchmark, run_history_benchmark_suite, run_review_benchmark_suite
 from .supervisor import build_supervisor_feedback, build_supervisor_plan, build_supervisor_workers, get_supervisor_observations, observe_supervisor_workers, render_supervisor_feedback, render_supervisor_observations, render_supervisor_plan, render_supervisor_runs, render_supervisor_workers, run_supervisor_loop
 from .workspace import (
     clean_workspace,
@@ -249,6 +249,7 @@ def build_parser() -> argparse.ArgumentParser:
     history_approve.add_argument("history_id")
     history_redact = history_sub.add_parser("redact"); history_redact.add_argument("history_id"); history_redact.add_argument("--source-file", required=True); history_redact.add_argument("--retention", choices=("30_days", "project_lifetime", "until_deleted"), required=True)
     history_sub.add_parser("rebuild")
+    history_sub.add_parser("enforce-retention")
     history_search = history_sub.add_parser("search"); history_search.add_argument("query"); history_search.add_argument("--limit", type=int, default=10)
     history_delete = history_sub.add_parser("delete"); history_delete.add_argument("history_id"); history_delete.add_argument("--confirm", action="store_true")
     history_export = history_sub.add_parser("export"); history_export.add_argument("target")
@@ -441,6 +442,8 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_review.add_argument("--suite", required=True)
     benchmark_alignment = sub.add_parser("benchmark-alignment-suite", help="Measure claim-title retrieval against adjudicated local labels.")
     benchmark_alignment.add_argument("--suite", required=True)
+    benchmark_history = sub.add_parser("benchmark-history-suite", help="Measure local history retrieval against adjudicated labels.")
+    benchmark_history.add_argument("--suite", required=True)
     benchmark_catalog = sub.add_parser("benchmark-synthetic-catalog", help="Generate a text-free local catalog of at least 200 synthetic evaluation fixtures.")
     benchmark_catalog.add_argument("--count", type=int, default=200)
     benchmark_shadow = sub.add_parser("benchmark-shadow", help="Register a local-only historical shadow benchmark without copying source text.")
@@ -928,6 +931,7 @@ def main(argv: list[str] | None = None) -> int:
             elif args.history_command == "redact": record = redact_history(base, args.history_id, Path(args.source_file), args.retention); message = f"Created redaction preview for {record['history_id']}"
             elif args.history_command == "approve": record = approve_history(base, args.history_id); message = f"Approved redacted history {record['history_id']}"
             elif args.history_command == "rebuild": result = rebuild_history_index(base); message = f"Rebuilt history index with {len(result['indexed_history_ids'])} records"
+            elif args.history_command == "enforce-retention": result = enforce_history_retention(base); message = f"Expired {len(result['expired_history_ids'])} history records"
             elif args.history_command == "search": print(json.dumps(search_history(base, args.query, args.limit), ensure_ascii=False, indent=2)); return 0
             elif args.history_command == "delete": record = delete_history(base, args.history_id, args.confirm); message = f"Deleted stored preview for {record['history_id']}"
             else: message = str(export_history(base, Path(args.target)))
@@ -1344,6 +1348,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}")
             return 1
         print(f"Alignment benchmark: recall@5={report['metrics']['recall_at_5']:.3f}, MRR={report['metrics']['mean_reciprocal_rank']:.3f}")
+        return 0
+    if args.command == "benchmark-history-suite":
+        try:
+            report = run_history_benchmark_suite(base, Path(args.suite))
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        print(f"History benchmark: recall@5={report['metrics']['recall_at_5']:.3f}, MRR={report['metrics']['mean_reciprocal_rank']:.3f}")
         return 0
     if args.command == "benchmark-shadow":
         try:

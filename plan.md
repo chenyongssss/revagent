@@ -44,8 +44,9 @@ acceptance criteria by themselves.
    reviewer-pack harness before expanding autonomy or claiming calibration.
 4. Use the human-gated intake workflow to collect actual independently
    adjudicated cases; publish measured quality before specifying novelty risk.
-5. Add automatic retention-expiry enforcement and an adjudicated memory
-   retrieval evaluation set before using history beyond local suggestions.
+5. Collect authorized, deidentified real history cases through the adjudicated
+   retrieval harness and publish measured quality before using history beyond
+   local suggestions. Automatic 30-day expiry enforcement is now implemented.
 
 ## Product Boundary
 
