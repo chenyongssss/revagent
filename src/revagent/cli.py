@@ -72,6 +72,7 @@ from .response_trace import render_response_trace, write_response_trace
 from .reviews import create_plan, ingest_comments
 from .privacy import privacy_scan
 from .contributions import contribution_data_card_template, create_contribution_package
+from .alignment_intake import adjudicate_alignment_case, annotate_alignment_case, export_alignment_fixture, initialize_alignment_case
 from .cockpit import write_author_cockpit
 from .pre_submission_review import build_pre_submission_review, load_pre_submission_review, pre_submission_review_is_stale, render_pre_submission_review
 from .paper_ingestion import build_paper_manifest, render_paper_manifest
@@ -164,6 +165,19 @@ def build_parser() -> argparse.ArgumentParser:
     contribution_export.add_argument("--case-id", required=True)
     contribution_export.add_argument("--data-card", required=True)
     contribution_export.add_argument("--confirm", action="store_true", help="Confirm that you reviewed the data card and intend to create a local candidate package.")
+    alignment_case = sub.add_parser("alignment-case", help="Manage local human-gated claim-alignment evaluation cases.")
+    alignment_case_sub = alignment_case.add_subparsers(dest="alignment_case_command", required=True)
+    alignment_init = alignment_case_sub.add_parser("init")
+    alignment_init.add_argument("case_id")
+    alignment_claim = alignment_init.add_mutually_exclusive_group(required=True)
+    alignment_claim.add_argument("--claim"); alignment_claim.add_argument("--claim-file")
+    alignment_init.add_argument("--candidates", required=True); alignment_init.add_argument("--data-card", required=True); alignment_init.add_argument("--confirm", action="store_true")
+    alignment_annotate = alignment_case_sub.add_parser("annotate")
+    alignment_annotate.add_argument("case_id"); alignment_annotate.add_argument("--annotator", required=True); alignment_annotate.add_argument("--relevant-work-id", action="append", required=True); alignment_annotate.add_argument("--note", required=True)
+    alignment_adjudicate = alignment_case_sub.add_parser("adjudicate")
+    alignment_adjudicate.add_argument("case_id"); alignment_adjudicate.add_argument("--adjudicator", required=True); alignment_adjudicate.add_argument("--relevant-work-id", action="append", required=True); alignment_adjudicate.add_argument("--note", required=True)
+    alignment_export = alignment_case_sub.add_parser("export-fixture")
+    alignment_export.add_argument("case_id"); alignment_export.add_argument("--suite", required=True)
     cockpit = sub.add_parser("cockpit", help="Write the local bilingual author cockpit HTML evidence overview.")
     cockpit.add_argument("--lang", choices=["en", "zh"], default="en")
     review_paper = sub.add_parser("review-paper", help="Run a local deterministic advisory pre-submission review.")
@@ -721,6 +735,24 @@ def main(argv: list[str] | None = None) -> int:
         try:
             print(create_contribution_package(base, Path(args.case_dir), args.case_id, Path(args.data_card), confirmed=args.confirm))
         except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "alignment-case":
+        try:
+            if args.alignment_case_command == "init":
+                claim = Path(args.claim_file).read_text(encoding="utf-8") if args.claim_file else args.claim
+                result = initialize_alignment_case(base, args.case_id, claim, Path(args.candidates), Path(args.data_card), args.confirm)
+                print(f"Alignment case {result['case_id']}: {result['status']}")
+            elif args.alignment_case_command == "annotate":
+                result = annotate_alignment_case(base, args.case_id, args.annotator, args.relevant_work_id, args.note)
+                print(f"Recorded annotation from {result['annotator_id']}")
+            elif args.alignment_case_command == "adjudicate":
+                result = adjudicate_alignment_case(base, args.case_id, args.adjudicator, args.relevant_work_id, args.note)
+                print(f"Alignment case {result['case_id']}: adjudicated")
+            else:
+                print(export_alignment_fixture(base, args.case_id, Path(args.suite)))
+        except (ValueError, OSError) as exc:
             print(f"error: {exc}")
             return 1
         return 0

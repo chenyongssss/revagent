@@ -314,6 +314,7 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     write_text(ws / "review_benchmark_report.md", "# Reviewer Pack Benchmark\n\nNo adjudicated review benchmark run yet.\n")
     write_json(ws / "alignment_benchmark_report.json", {"version": 1, "status": "not_run"})
     write_text(ws / "alignment_benchmark_report.md", "# Claim Alignment Benchmark\n\nNo adjudicated alignment benchmark run yet.\n")
+    write_json(ws / "alignment_case_registry.json", {"version": 1, "cases": {}})
     write_json(ws / "artifact_registry.json", artifact_registry_document(ws))
     return ws
 
@@ -542,6 +543,7 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "review_benchmark_report.md": "# Reviewer Pack Benchmark\n\nNo adjudicated review benchmark run yet.\n",
         "alignment_benchmark_report.json": {"version": 1, "status": "not_run"},
         "alignment_benchmark_report.md": "# Claim Alignment Benchmark\n\nNo adjudicated alignment benchmark run yet.\n",
+        "alignment_case_registry.json": {"version": 1, "cases": {}},
         "decision_log.md": "# Decision Log\n\n",
         "latex_index.json": latex_index(config.tex_root, config.main_tex),
         "proof_audit.md": "# Proof Audit\n\n",

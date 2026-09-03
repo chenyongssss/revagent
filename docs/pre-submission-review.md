@@ -103,6 +103,21 @@ provenance. Reports bind label hashes and measure recall@5, precision@5, mean
 reciprocal rank, and zero-hit rate. These measurements are not release or
 novelty calibration.
 
+Real-case intake remains local and human-gated:
+
+```powershell
+revagent alignment-case init case-001 --claim-file deidentified_claim.txt --candidates candidates.json --data-card data_card.json --confirm
+revagent alignment-case annotate case-001 --annotator expert-a --relevant-work-id 10.x/a --note "Independent assessment"
+revagent alignment-case annotate case-001 --annotator expert-b --relevant-work-id 10.x/a --note "Independent assessment"
+revagent alignment-case adjudicate case-001 --adjudicator expert-a --relevant-work-id 10.x/a --note "Resolved disagreement"
+revagent alignment-case export-fixture case-001 --suite benchmarks/alignment
+```
+
+The data card must record written permission, completed deidentification,
+retention/access rules, and the `claim_alignment_benchmark` purpose. RevAgent
+does not verify expert identity, independence, permission, or deidentification,
+and performs no upload.
+
 ## Local journal rulepacks
 
 RevAgent prefers a project-local directory rulepack at

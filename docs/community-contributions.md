@@ -38,3 +38,12 @@ Share only the metadata candidate package after you have completed its data card
 
 完成数据卡与安全审阅后，当前只能分享元数据候选包。若未来治理流程接受开放许可的案例，应同时发布数据卡、授权记录、脱敏报告以及保留/访问规则。
 
+## Claim-alignment evaluation intake
+
+Use the local `alignment-case` workflow documented in
+`docs/pre-submission-review.md` for claim-alignment evaluation cases. It
+requires a completed contribution data card, two distinct pseudonymous
+annotations, and explicit adjudication before a benchmark fixture can be
+exported. Prefer `--claim-file` so deidentified claim text does not appear in
+shell history. Export is local only and is not publication approval; RevAgent
+does not verify permission, deidentification, expertise, or independence.
