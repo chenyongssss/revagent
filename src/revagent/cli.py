@@ -81,6 +81,7 @@ from .reviewer_packs import available_reviewer_packs
 from .rebuttal import approve_rebuttal_atom, finalize_rebuttal, parse_rebuttal, rebuttal_draft, rebuttal_plan, rebuttal_stress_test, resubmit_rebuttal
 from .literature import FETCH_PROVIDERS, PROVIDERS, authorize_literature_provider, authorize_literature_query, build_citation_graph, build_claim_literature_alignments, build_retraction_report, cache_literature_query, fetch_literature_provider, fetch_openalex, literature_provenance_report, literature_status, review_claim_literature_alignment
 from .history import approve_history, delete_history, enforce_history_retention, export_history, import_history, rebuild_history_index, redact_history, search_history
+from .history_intake import adjudicate_history_case, annotate_history_case, export_history_fixture, initialize_history_case, publish_history_quality
 from .validation import doctor, validate_workspace
 from .external_agent import (
     external_agent_run_artifact,
@@ -178,6 +179,12 @@ def build_parser() -> argparse.ArgumentParser:
     alignment_adjudicate.add_argument("case_id"); alignment_adjudicate.add_argument("--adjudicator", required=True); alignment_adjudicate.add_argument("--relevant-work-id", action="append", required=True); alignment_adjudicate.add_argument("--note", required=True)
     alignment_export = alignment_case_sub.add_parser("export-fixture")
     alignment_export.add_argument("case_id"); alignment_export.add_argument("--suite", required=True)
+    history_case = sub.add_parser("history-case", help="Manage authorized, deidentified real history evaluation cases.")
+    history_case_sub = history_case.add_subparsers(dest="history_case_command", required=True)
+    history_init = history_case_sub.add_parser("init"); history_init.add_argument("case_id"); history_init.add_argument("--query", required=True); history_init.add_argument("--corpus", required=True); history_init.add_argument("--data-card", required=True); history_init.add_argument("--confirm", action="store_true")
+    history_annotate = history_case_sub.add_parser("annotate"); history_annotate.add_argument("case_id"); history_annotate.add_argument("--annotator", required=True); history_annotate.add_argument("--relevant-history-id", action="append", required=True); history_annotate.add_argument("--note", required=True)
+    history_adjudicate = history_case_sub.add_parser("adjudicate"); history_adjudicate.add_argument("case_id"); history_adjudicate.add_argument("--adjudicator", required=True); history_adjudicate.add_argument("--relevant-history-id", action="append", required=True); history_adjudicate.add_argument("--note", required=True)
+    history_fixture = history_case_sub.add_parser("export-fixture"); history_fixture.add_argument("case_id"); history_fixture.add_argument("--suite", required=True)
     cockpit = sub.add_parser("cockpit", help="Write the local bilingual author cockpit HTML evidence overview.")
     cockpit.add_argument("--lang", choices=["en", "zh"], default="en")
     review_paper = sub.add_parser("review-paper", help="Run a local deterministic advisory pre-submission review.")
@@ -444,6 +451,8 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_alignment.add_argument("--suite", required=True)
     benchmark_history = sub.add_parser("benchmark-history-suite", help="Measure local history retrieval against adjudicated labels.")
     benchmark_history.add_argument("--suite", required=True)
+    history_publish = sub.add_parser("history-quality-publish", help="Publish measured quality only for authorized real history cases.")
+    history_publish.add_argument("--suite", required=True)
     benchmark_catalog = sub.add_parser("benchmark-synthetic-catalog", help="Generate a text-free local catalog of at least 200 synthetic evaluation fixtures.")
     benchmark_catalog.add_argument("--count", type=int, default=200)
     benchmark_shadow = sub.add_parser("benchmark-shadow", help="Register a local-only historical shadow benchmark without copying source text.")
@@ -763,6 +772,15 @@ def main(argv: list[str] | None = None) -> int:
         except (ValueError, OSError) as exc:
             print(f"error: {exc}")
             return 1
+        return 0
+    if args.command == "history-case":
+        try:
+            if args.history_case_command == "init": result = initialize_history_case(base, args.case_id, args.query, Path(args.corpus), Path(args.data_card), args.confirm); print(f"History case {result['case_id']}: {result['status']}")
+            elif args.history_case_command == "annotate": result = annotate_history_case(base, args.case_id, args.annotator, args.relevant_history_id, args.note); print(f"Recorded annotation from {result['annotator_id']}")
+            elif args.history_case_command == "adjudicate": result = adjudicate_history_case(base, args.case_id, args.adjudicator, args.relevant_history_id, args.note); print(f"History case {result['case_id']}: adjudicated")
+            else: print(export_history_fixture(base, args.case_id, Path(args.suite)))
+        except (ValueError, OSError) as exc:
+            print(f"error: {exc}"); return 1
         return 0
     if args.command == "cockpit":
         print(write_author_cockpit(base, args.lang))
@@ -1356,6 +1374,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}")
             return 1
         print(f"History benchmark: recall@5={report['metrics']['recall_at_5']:.3f}, MRR={report['metrics']['mean_reciprocal_rank']:.3f}")
+        return 0
+    if args.command == "history-quality-publish":
+        try: report = publish_history_quality(base, Path(args.suite))
+        except ValueError as exc:
+            print(f"error: {exc}"); return 1
+        print(f"Published history quality from {report['case_count']} adjudicated real cases")
         return 0
     if args.command == "benchmark-shadow":
         try:

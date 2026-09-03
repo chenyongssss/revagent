@@ -312,6 +312,9 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     write_json(ws / "history_registry.json", {"version": 2, "records": []})
     write_json(ws / "history_benchmark_report.json", {"version": 1, "status": "not_run"})
     write_text(ws / "history_benchmark_report.md", "# History Retrieval Benchmark\n\nNo adjudicated history benchmark run yet.\n")
+    write_json(ws / "history_case_registry.json", {"version": 1, "cases": {}})
+    write_json(ws / "history_quality_report.json", {"version": 1, "status": "not_published", "reason": "no_authorized_adjudicated_real_cases"})
+    write_text(ws / "history_quality_report.md", "# Published History Retrieval Quality\n\nNo authorized adjudicated real-case metrics have been published.\n")
     write_json(ws / "review_benchmark_report.json", {"version": 1, "status": "not_run"})
     write_text(ws / "review_benchmark_report.md", "# Reviewer Pack Benchmark\n\nNo adjudicated review benchmark run yet.\n")
     write_json(ws / "alignment_benchmark_report.json", {"version": 1, "status": "not_run"})
@@ -543,6 +546,9 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "history_registry.json": {"version": 2, "records": []},
         "history_benchmark_report.json": {"version": 1, "status": "not_run"},
         "history_benchmark_report.md": "# History Retrieval Benchmark\n\nNo adjudicated history benchmark run yet.\n",
+        "history_case_registry.json": {"version": 1, "cases": {}},
+        "history_quality_report.json": {"version": 1, "status": "not_published", "reason": "no_authorized_adjudicated_real_cases"},
+        "history_quality_report.md": "# Published History Retrieval Quality\n\nNo authorized adjudicated real-case metrics have been published.\n",
         "review_benchmark_report.json": {"version": 1, "status": "not_run"},
         "review_benchmark_report.md": "# Reviewer Pack Benchmark\n\nNo adjudicated review benchmark run yet.\n",
         "alignment_benchmark_report.json": {"version": 1, "status": "not_run"},
