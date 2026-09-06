@@ -14,6 +14,8 @@
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Privacy](https://img.shields.io/badge/data-local--first-6f42c1)
 
+<img src="docs/assets/revagent-hero.png" alt="RevAgent turns reviewer comments into verified manuscript revisions and a consistent rebuttal" width="100%">
+
 </div>
 
 > Give RevAgent a LaTeX manuscript and reviewer comments. It turns every request into a traceable task, proposes guarded edits, checks that response claims match actual manuscript changes, and assembles a rebuttal for author approval.

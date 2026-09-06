@@ -14,6 +14,8 @@
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Privacy](https://img.shields.io/badge/data-local--first-6f42c1)
 
+<img src="docs/assets/revagent-hero.png" alt="RevAgent 将审稿意见转化为经过验证的稿件修改与一致性 rebuttal" width="100%">
+
 </div>
 
 > 将 LaTeX 稿件和审稿意见交给 RevAgent。它会把每条意见拆成可追踪任务，提出受控修改，核对回复中的陈述是否真的落实到稿件，并生成供作者签核的逐条 rebuttal。
