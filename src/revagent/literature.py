@@ -7,11 +7,12 @@ from urllib.request import Request, urlopen
 from ._utils import load_config, now_iso, read_json, write_json
 
 PROVIDERS = ("openalex", "crossref", "arxiv", "semantic-scholar", "doi-metadata")
-FETCH_PROVIDERS = ("openalex", "crossref", "arxiv", "doi-metadata")
+FETCH_PROVIDERS = ("openalex", "crossref", "arxiv", "semantic-scholar", "doi-metadata")
 PROVIDER_CONTRACTS = {
     "openalex": "https://api.openalex.org/works",
     "crossref": "https://api.crossref.org/works",
     "arxiv": "https://export.arxiv.org/api/query",
+    "semantic-scholar": "https://api.semanticscholar.org/graph/v1/paper/search",
     "doi-metadata": "https://doi.org/",
 }
 
@@ -77,6 +78,7 @@ def normalize_provider_response(provider: str, response: object) -> list[dict]:
         } for e in root.findall("a:entry", ns)]
     if not isinstance(response, dict): return []
     if provider == "openalex": items = response.get("results", [])
+    elif provider == "semantic-scholar": items = response.get("data", [])
     elif provider == "crossref": items = response.get("message", {}).get("items", [])
     elif provider == "doi-metadata": items = [] if response.get("offline") else [response]
     else: return []
@@ -89,6 +91,15 @@ def normalize_provider_response(provider: str, response: object) -> list[dict]:
             published, url = _first(item.get("publication_date")), _first(item.get("doi") or item.get("id"))
             references = [_first(value) for value in item.get("referenced_works", [])]
             relations = []
+        elif provider == "semantic-scholar":
+            authors = _authors(item.get("authors", []))
+            external = item.get("externalIds", {}) if isinstance(item.get("externalIds"), dict) else {}
+            doi = _first(external.get("DOI"))
+            pid = _first(item.get("paperId"))
+            published = _first(item.get("publicationDate") or item.get("year"))
+            url = _first(item.get("url")) or (f"https://doi.org/{doi}" if doi else "")
+            references = [_first(value.get("paperId")) for value in item.get("references", []) if isinstance(value, dict)]
+            relations = []
         else:
             authors, doi = _authors(item.get("author", [])), _first(item.get("DOI"))
             pid, published = _first(item.get("DOI") or item.get("URL")), _date(item.get("published") or item.get("issued"))
@@ -98,7 +109,9 @@ def normalize_provider_response(provider: str, response: object) -> list[dict]:
         records.append({"provider": provider, "provider_id": pid, "title": _first(item.get("title") or item.get("display_name")),
                         "authors": [x for x in authors if x], "doi": doi, "url": url, "published": published,
                         "updated": _first(item.get("updated_date")), "type": _first(item.get("type")),
-                        "reference_ids": [value for value in references if value], "relations": relations})
+                        "reference_ids": [value for value in references if value], "relations": relations,
+                        "open_access_url": _first((item.get("openAccessPdf") or {}).get("url")) if isinstance(item.get("openAccessPdf"), dict) else "",
+                        "citation_count": item.get("citationCount") if isinstance(item.get("citationCount"), int) else None})
     return records
 
 def cache_literature_query(base, provider: str, query: str, response: object, *, authorization: dict | None = None,
@@ -173,17 +186,55 @@ def build_retraction_report(base) -> dict:
         for record in cache.get("normalized_records", []):
             doi = _first(record.get("doi"))
             if doi: checked.add(doi)
+            title_and_type = f"{record.get('title', '')} {record.get('type', '')}".lower()
+            if doi and re.search(r"\b(retracted article|withdrawn article)\b", title_and_type):
+                assertions.append({"doi": doi, "status": "potential_retraction_notice", "relation": "title_or_type_signal", "notice_doi": doi, "provenance": provenance})
+            if doi and re.search(r"\bexpression of concern\b", title_and_type):
+                assertions.append({"doi": doi, "status": "expression_of_concern", "relation": "title_or_type_signal", "notice_doi": doi, "provenance": provenance})
             for relation in record.get("relations", []):
                 if not isinstance(relation, dict): continue
                 kind, target = str(relation.get("type", "")).lower(), _first(relation.get("target"))
-                if kind in {"retraction", "is-retracted-by"} and target:
+                if target: checked.add(target)
+                if kind in {"retraction", "is-retracted-by", "retracts", "retracted-by"} and target:
                     retracted = doi if kind == "is-retracted-by" and doi else target
                     assertions.append({"doi": retracted, "status": "retracted", "relation": kind, "notice_doi": doi, "provenance": provenance})
-    retracted = {item["doi"] for item in assertions}
+    assertions.sort(key=lambda item: (item["status"] != "retracted", item["doi"], item["relation"]))
+    retracted = {item["doi"] for item in assertions if item["status"] == "retracted"}
+    warnings = {item["doi"]: item["status"] for item in assertions if item["status"] != "retracted"}
     report = {"version": 1, "generated_at": now_iso(), "assertions": assertions,
-              "records": [{"doi": doi, "status": "retracted" if doi in retracted else "no_retraction_metadata_observed"} for doi in sorted(checked | retracted)],
+              "records": [{"doi": doi, "status": "retracted" if doi in retracted else warnings.get(doi, "no_retraction_metadata_observed")} for doi in sorted(checked | retracted)],
               "limitations": ["No retraction metadata observed is not confirmation that a work is unretracted; provider coverage and deposits may be incomplete."]}
     write_json(ws / "literature_retractions.json", report)
+    return report
+
+def build_literature_advisory_report(base) -> dict:
+    """Build provenance-bound novelty/reproducibility hints without semantic claims."""
+    ws = load_config(base).workspace
+    rows = []
+    for cache in _permitted_cache_records(base):
+        provenance = {"provider": cache.get("provider", ""), "authorization_id": cache.get("authorization_id", ""),
+                      "response_sha256": cache.get("response_sha256", ""),
+                      "query_sha256": hashlib.sha256(str(cache.get("query", "")).encode()).hexdigest()}
+        for record in cache.get("normalized_records", []):
+            work_id = _first(record.get("doi") or record.get("provider_id"))
+            if not work_id:
+                continue
+            rows.append({
+                "work_id": work_id, "title": record.get("title", ""), "published": record.get("published", ""),
+                "novelty_advisory": "candidate_for_author_comparison",
+                "reproducibility_advisory": "open_access_copy_observed" if record.get("open_access_url") else "no_open_access_copy_observed",
+                "reference_count_observed": len(record.get("reference_ids", [])),
+                "provenance": provenance,
+            })
+    report = {
+        "version": 1, "generated_at": now_iso(), "records": rows,
+        "status": "metadata_advisory_only_not_expert_calibrated",
+        "limitations": [
+            "Candidate records do not establish novelty, priority, or scientific correctness.",
+            "Open-access and reference metadata do not establish computational reproducibility; code, data, environment, and reruns require separate verification.",
+        ],
+    }
+    write_json(ws / "literature_advisory.json", report)
     return report
 
 _ALIGNMENT_STOPWORDS = {"a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "of", "on", "or", "that", "the", "this", "to", "we", "with"}
@@ -302,6 +353,9 @@ def _provider_request(provider: str, query: str) -> tuple[Request, str]:
     if provider == "openalex": url, accept = PROVIDER_CONTRACTS[provider] + "?" + urlencode({"search": query, "per-page": 10}), "application/json"
     elif provider == "crossref": url, accept = PROVIDER_CONTRACTS[provider] + "?" + urlencode({"query.bibliographic": query, "rows": 10}), "application/json"
     elif provider == "arxiv": url, accept = PROVIDER_CONTRACTS[provider] + "?" + urlencode({"search_query": f"all:{query}", "start": 0, "max_results": 10}), "application/atom+xml"
+    elif provider == "semantic-scholar":
+        fields = "paperId,title,authors,externalIds,url,year,publicationDate,references.paperId,openAccessPdf,citationCount"
+        url, accept = PROVIDER_CONTRACTS[provider] + "?" + urlencode({"query": query, "limit": 10, "fields": fields}), "application/json"
     elif provider == "doi-metadata":
         doi = query.strip().removeprefix("https://doi.org/").removeprefix("http://doi.org/")
         if not re.fullmatch(r"10\.\d{4,9}/\S+", doi, re.I): raise ValueError("DOI metadata queries require a valid DOI")

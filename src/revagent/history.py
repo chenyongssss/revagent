@@ -19,6 +19,7 @@ def _find(data, history_id):
     return record
 
 def import_history(base, path: Path, purpose: str) -> dict:
+    enforce_history_retention(base)
     if not path.is_file(): raise ValueError("history source must be a file")
     if not purpose.strip(): raise ValueError("history purpose is required")
     target, data = _registry(base)
@@ -28,6 +29,7 @@ def import_history(base, path: Path, purpose: str) -> dict:
     data["version"] = 2; data["records"].append(record); write_json(target, data); return record
 
 def redact_history(base, history_id: str, source_path: Path, retention_rule: str) -> dict:
+    enforce_history_retention(base)
     if retention_rule not in RETENTION_RULES: raise ValueError("invalid retention rule")
     target, data = _registry(base); record = _find(data, history_id)
     if not source_path.is_file() or file_sha256(source_path) != record.get("source_sha256"): raise ValueError("history source hash does not match imported record")
@@ -43,6 +45,7 @@ def redact_history(base, history_id: str, source_path: Path, retention_rule: str
     write_json(target, data); return record
 
 def approve_history(base, history_id: str) -> dict:
+    enforce_history_retention(base)
     target, data = _registry(base); record = _find(data, history_id)
     if record.get("consent") != "pending": raise ValueError("history record is not awaiting consent")
     if record.get("deidentification_status") != "preview_ready": raise ValueError("history record requires a redaction preview before approval")

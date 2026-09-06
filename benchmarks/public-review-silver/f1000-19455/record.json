@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "case_id": "f1000-19455",
+  "provider": "f1000research",
+  "venue": "F1000Research",
+  "record_id": "10.12688/f1000research.19455.1",
+  "record_url": "https://f1000research.com/articles/8-1020/v1",
+  "license": "CC-BY-4.0",
+  "license_url": "https://f1000research.com/about/policies",
+  "retrieved_at": "2026-09-04",
+  "paper": {
+    "title": "Fracture resistance and 3D finite element analysis of machined ceramic crowns",
+    "text": "An in vitro experiment and three-dimensional finite element analysis compare two occlusal preparation designs for ceramic crowns.",
+    "license": "CC-BY-4.0"
+  },
+  "reviews": [
+    {
+      "review_id": "10.5256/f1000research.21329.r50923",
+      "url": "https://doi.org/10.5256/f1000research.21329.r50923",
+      "attribution": "Tarek Salah",
+      "text": "There are no details. What type of tests or analysis did you perform? The model designing step needs more description especially the role of CBCT and the correlation with the 3D scanning.",
+      "license": "CC-BY-4.0"
+    },
+    {
+      "review_id": "10.5256/f1000research.21329.r57384",
+      "url": "https://doi.org/10.5256/f1000research.21329.r57384",
+      "attribution": "Gurel Pekkan",
+      "text": "Please discuss the ball-contact points and localization in the test configuration that would affect the force distribution in the tooth. The manuscript needs more literature review in the introduction.",
+      "license": "CC-BY-4.0"
+    }
+  ]
+}

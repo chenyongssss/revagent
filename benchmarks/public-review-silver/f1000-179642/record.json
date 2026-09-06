@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "case_id": "f1000-179642",
+  "provider": "f1000research",
+  "venue": "F1000Research",
+  "record_id": "10.12688/f1000research.179642.1",
+  "record_url": "https://f1000research.com/articles/15-679/v1",
+  "license": "CC-BY-4.0",
+  "license_url": "https://f1000research.com/about/policies",
+  "retrieved_at": "2026-09-04",
+  "paper": {
+    "title": "Dual Twist Channel Angular Extrusion for Ultrafine-Grained Material Processing as an Advanced Severe Plastic Deformation Technique: A Finite Element Analysis",
+    "text": "Finite element analysis of a dual twist channel angular extrusion process using DEFORM-3D.",
+    "license": "CC-BY-4.0"
+  },
+  "reviews": [
+    {
+      "review_id": "f1000-179642-review-akhtar-khan",
+      "url": "https://www.spacegis.ru/?action=view&id_news=131353656#review-akhtar-khan",
+      "attribution": "Akhtar khan, IIIT Kurnool",
+      "text": "Is the work clearly and accurately presented and does it cite the current literature? Yes. Is the study design appropriate and is the work technically sound? Yes. Are sufficient details of methods and analysis provided to allow replication by others? Yes. Are all the source data underlying the results available to ensure full reproducibility? Yes. Are the conclusions drawn adequately supported by the results? Yes.",
+      "license": "CC-BY-4.0"
+    },
+    {
+      "review_id": "f1000-179642-review-suraj-behera",
+      "url": "https://www.spacegis.ru/?action=view&id_news=131353656#review-suraj-behera",
+      "attribution": "Suraj Kumar Behera, National Institute of Technology Rourkela",
+      "text": "Is the work clearly and accurately presented and does it cite the current literature? Yes. Is the study design appropriate and is the work technically sound? Yes. Are sufficient details of methods and analysis provided to allow replication by others? Yes. Are all the source data underlying the results available to ensure full reproducibility? Yes. Are the conclusions drawn adequately supported by the results? Yes.",
+      "license": "CC-BY-4.0"
+    }
+  ]
+}

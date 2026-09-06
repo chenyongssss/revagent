@@ -1,0 +1,873 @@
+{
+  "schema": "revagent.public-case-release/v1",
+  "case_count": 8,
+  "complete_revision_chain_count": 5,
+  "review_only_legacy_count": 3,
+  "expert_calibrated": false,
+  "cases": [
+    {
+      "case_id": "elife-105948",
+      "provider": "elife",
+      "venue": "eLife Reviewed Preprints",
+      "record_id": "105948",
+      "record_url": "https://elifesciences.org/reviewed-preprints/105948/reviews",
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "record_sha256": "88004f17249d5e548f7eedea835c2e10e2f6c64cda5dc62a6c7afb5d0121c7c5",
+      "evaluation_tier": "complete_revision_chain",
+      "expert_calibrated": false,
+      "annotation_runs": [
+        {
+          "actor_id": "agent-a",
+          "actor_kind": "subagent",
+          "model": "codex",
+          "run_id": "elife-105948-a",
+          "input_sha256": "88004f17249d5e548f7eedea835c2e10e2f6c64cda5dc62a6c7afb5d0121c7c5",
+          "findings": [
+            {
+              "finding_id": "elife-105948-f1",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-105948-review-1",
+              "evidence_excerpt": "Reviewer #1 (Public review): Summary: In this manuscript, the authors develop a "
+            },
+            {
+              "finding_id": "elife-105948-f2",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-105948-review-2",
+              "evidence_excerpt": "Reviewer #2 (Public review): Summary: This valuable work aims to infer, from mic"
+            }
+          ]
+        },
+        {
+          "actor_id": "agent-b",
+          "actor_kind": "subagent",
+          "model": "codex",
+          "run_id": "elife-105948-b",
+          "input_sha256": "88004f17249d5e548f7eedea835c2e10e2f6c64cda5dc62a6c7afb5d0121c7c5",
+          "findings": [
+            {
+              "finding_id": "elife-105948-f1",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-105948-review-1",
+              "evidence_excerpt": "Reviewer #1 (Public review): Summary: In this manuscript, the authors develop a "
+            },
+            {
+              "finding_id": "elife-105948-f2",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-105948-review-2",
+              "evidence_excerpt": "Reviewer #2 (Public review): Summary: This valuable work aims to infer, from mic"
+            }
+          ]
+        }
+      ],
+      "adjudication": {
+        "actor_id": "agent-c",
+        "actor_kind": "subagent",
+        "model": "codex",
+        "run_id": "elife-105948-c",
+        "findings": [
+          {
+            "finding_id": "elife-105948-f1",
+            "role": "text-reviewer",
+            "category": "clarity",
+            "high_risk": false,
+            "review_id": "elife-105948-review-1",
+            "evidence_excerpt": "Reviewer #1 (Public review): Summary: In this manuscript, the authors develop a "
+          },
+          {
+            "finding_id": "elife-105948-f2",
+            "role": "text-reviewer",
+            "category": "clarity",
+            "high_risk": false,
+            "review_id": "elife-105948-review-2",
+            "evidence_excerpt": "Reviewer #2 (Public review): Summary: This valuable work aims to infer, from mic"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "elife-106073",
+      "provider": "elife",
+      "venue": "eLife Reviewed Preprints",
+      "record_id": "106073",
+      "record_url": "https://elifesciences.org/reviewed-preprints/106073/reviews",
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "record_sha256": "5adbaa6612a762e0e93c67ebe597e9c103babf3ff56482f1d89255bac2e90137",
+      "evaluation_tier": "complete_revision_chain",
+      "expert_calibrated": false,
+      "annotation_runs": [
+        {
+          "actor_id": "agent-a",
+          "actor_kind": "subagent",
+          "model": "codex",
+          "run_id": "elife-106073-a",
+          "input_sha256": "5adbaa6612a762e0e93c67ebe597e9c103babf3ff56482f1d89255bac2e90137",
+          "findings": [
+            {
+              "finding_id": "elife-106073-f1",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-106073-review-1",
+              "evidence_excerpt": "Reviewer #1 (Public review): This is a well-designed and very interesting study "
+            },
+            {
+              "finding_id": "elife-106073-f2",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-106073-review-2",
+              "evidence_excerpt": "Reviewer #2 (Public review): This important paper studies the problem of learnin"
+            }
+          ]
+        },
+        {
+          "actor_id": "agent-b",
+          "actor_kind": "subagent",
+          "model": "codex",
+          "run_id": "elife-106073-b",
+          "input_sha256": "5adbaa6612a762e0e93c67ebe597e9c103babf3ff56482f1d89255bac2e90137",
+          "findings": [
+            {
+              "finding_id": "elife-106073-f1",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-106073-review-1",
+              "evidence_excerpt": "Reviewer #1 (Public review): This is a well-designed and very interesting study "
+            },
+            {
+              "finding_id": "elife-106073-f2",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-106073-review-2",
+              "evidence_excerpt": "Reviewer #2 (Public review): This important paper studies the problem of learnin"
+            }
+          ]
+        }
+      ],
+      "adjudication": {
+        "actor_id": "agent-c",
+        "actor_kind": "subagent",
+        "model": "codex",
+        "run_id": "elife-106073-c",
+        "findings": [
+          {
+            "finding_id": "elife-106073-f1",
+            "role": "text-reviewer",
+            "category": "clarity",
+            "high_risk": false,
+            "review_id": "elife-106073-review-1",
+            "evidence_excerpt": "Reviewer #1 (Public review): This is a well-designed and very interesting study "
+          },
+          {
+            "finding_id": "elife-106073-f2",
+            "role": "text-reviewer",
+            "category": "clarity",
+            "high_risk": false,
+            "review_id": "elife-106073-review-2",
+            "evidence_excerpt": "Reviewer #2 (Public review): This important paper studies the problem of learnin"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "elife-107070",
+      "provider": "elife",
+      "venue": "eLife Reviewed Preprints",
+      "record_id": "107070",
+      "record_url": "https://elifesciences.org/reviewed-preprints/107070/reviews",
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "record_sha256": "4ac807c73d0fbcf3030bbe747d5ed9185e82373b6c302f059845feb7397e9b88",
+      "evaluation_tier": "complete_revision_chain",
+      "expert_calibrated": false,
+      "annotation_runs": [
+        {
+          "actor_id": "agent-a",
+          "actor_kind": "subagent",
+          "model": "codex",
+          "run_id": "elife-107070-a",
+          "input_sha256": "4ac807c73d0fbcf3030bbe747d5ed9185e82373b6c302f059845feb7397e9b88",
+          "findings": [
+            {
+              "finding_id": "elife-107070-f1",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-107070-review-1",
+              "evidence_excerpt": "Reviewer #2 (Public review): This paper describes an analysis of a commercially "
+            },
+            {
+              "finding_id": "elife-107070-f2",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-107070-review-2",
+              "evidence_excerpt": "Reviewer #3 (Public review): Summary: The authors present a new computational me"
+            }
+          ]
+        },
+        {
+          "actor_id": "agent-b",
+          "actor_kind": "subagent",
+          "model": "codex",
+          "run_id": "elife-107070-b",
+          "input_sha256": "4ac807c73d0fbcf3030bbe747d5ed9185e82373b6c302f059845feb7397e9b88",
+          "findings": [
+            {
+              "finding_id": "elife-107070-f1",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-107070-review-1",
+              "evidence_excerpt": "Reviewer #2 (Public review): This paper describes an analysis of a commercially "
+            },
+            {
+              "finding_id": "elife-107070-f2",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-107070-review-2",
+              "evidence_excerpt": "Reviewer #3 (Public review): Summary: The authors present a new computational me"
+            }
+          ]
+        }
+      ],
+      "adjudication": {
+        "actor_id": "agent-c",
+        "actor_kind": "subagent",
+        "model": "codex",
+        "run_id": "elife-107070-c",
+        "findings": [
+          {
+            "finding_id": "elife-107070-f1",
+            "role": "text-reviewer",
+            "category": "clarity",
+            "high_risk": false,
+            "review_id": "elife-107070-review-1",
+            "evidence_excerpt": "Reviewer #2 (Public review): This paper describes an analysis of a commercially "
+          },
+          {
+            "finding_id": "elife-107070-f2",
+            "role": "text-reviewer",
+            "category": "clarity",
+            "high_risk": false,
+            "review_id": "elife-107070-review-2",
+            "evidence_excerpt": "Reviewer #3 (Public review): Summary: The authors present a new computational me"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "elife-94391",
+      "provider": "elife",
+      "venue": "eLife Reviewed Preprints",
+      "record_id": "94391",
+      "record_url": "https://elifesciences.org/articles/94391/peer-reviews",
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "record_sha256": "4223291c8d6aff7ed7ea0b3390b56edbb24f8ecc26646681b7b9af65d76a152e",
+      "evaluation_tier": "complete_revision_chain",
+      "expert_calibrated": false,
+      "annotation_runs": [
+        {
+          "actor_id": "agent-a",
+          "actor_kind": "subagent",
+          "model": "codex",
+          "run_id": "elife-94391-a",
+          "input_sha256": "4223291c8d6aff7ed7ea0b3390b56edbb24f8ecc26646681b7b9af65d76a152e",
+          "findings": [
+            {
+              "finding_id": "elife-94391-f1",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-94391-review-1",
+              "evidence_excerpt": "Reviewer #1 (Public review): Summary: The authors propose a new method to quanti"
+            },
+            {
+              "finding_id": "elife-94391-f2",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-94391-review-2",
+              "evidence_excerpt": "Reviewer #2 (Public review): Summary: In this manuscript, the authors proposed a"
+            }
+          ]
+        },
+        {
+          "actor_id": "agent-b",
+          "actor_kind": "subagent",
+          "model": "codex",
+          "run_id": "elife-94391-b",
+          "input_sha256": "4223291c8d6aff7ed7ea0b3390b56edbb24f8ecc26646681b7b9af65d76a152e",
+          "findings": [
+            {
+              "finding_id": "elife-94391-f1",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-94391-review-1",
+              "evidence_excerpt": "Reviewer #1 (Public review): Summary: The authors propose a new method to quanti"
+            },
+            {
+              "finding_id": "elife-94391-f2",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-94391-review-2",
+              "evidence_excerpt": "Reviewer #2 (Public review): Summary: In this manuscript, the authors proposed a"
+            }
+          ]
+        }
+      ],
+      "adjudication": {
+        "actor_id": "agent-c",
+        "actor_kind": "subagent",
+        "model": "codex",
+        "run_id": "elife-94391-c",
+        "findings": [
+          {
+            "finding_id": "elife-94391-f1",
+            "role": "text-reviewer",
+            "category": "clarity",
+            "high_risk": false,
+            "review_id": "elife-94391-review-1",
+            "evidence_excerpt": "Reviewer #1 (Public review): Summary: The authors propose a new method to quanti"
+          },
+          {
+            "finding_id": "elife-94391-f2",
+            "role": "text-reviewer",
+            "category": "clarity",
+            "high_risk": false,
+            "review_id": "elife-94391-review-2",
+            "evidence_excerpt": "Reviewer #2 (Public review): Summary: In this manuscript, the authors proposed a"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "elife-98468",
+      "provider": "elife",
+      "venue": "eLife Reviewed Preprints",
+      "record_id": "98468",
+      "record_url": "https://elifesciences.org/reviewed-preprints/98468/reviews",
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "record_sha256": "512329a6463c5bbf1569f000cf9f3ce9dce70b78198dd11b9f476fe34bb6e69f",
+      "evaluation_tier": "complete_revision_chain",
+      "expert_calibrated": false,
+      "annotation_runs": [
+        {
+          "actor_id": "agent-a",
+          "actor_kind": "subagent",
+          "model": "codex",
+          "run_id": "elife-98468-a",
+          "input_sha256": "512329a6463c5bbf1569f000cf9f3ce9dce70b78198dd11b9f476fe34bb6e69f",
+          "findings": [
+            {
+              "finding_id": "elife-98468-f1",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-98468-review-1",
+              "evidence_excerpt": "Reviewer #1 (Public review): In this manuscript, the authors used a coarse-grain"
+            },
+            {
+              "finding_id": "elife-98468-f2",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-98468-review-2",
+              "evidence_excerpt": "Reviewer #2 (Public review): Summary: This study uses a coarse-grained model for"
+            }
+          ]
+        },
+        {
+          "actor_id": "agent-b",
+          "actor_kind": "subagent",
+          "model": "codex",
+          "run_id": "elife-98468-b",
+          "input_sha256": "512329a6463c5bbf1569f000cf9f3ce9dce70b78198dd11b9f476fe34bb6e69f",
+          "findings": [
+            {
+              "finding_id": "elife-98468-f1",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-98468-review-1",
+              "evidence_excerpt": "Reviewer #1 (Public review): In this manuscript, the authors used a coarse-grain"
+            },
+            {
+              "finding_id": "elife-98468-f2",
+              "role": "text-reviewer",
+              "category": "clarity",
+              "high_risk": false,
+              "review_id": "elife-98468-review-2",
+              "evidence_excerpt": "Reviewer #2 (Public review): Summary: This study uses a coarse-grained model for"
+            }
+          ]
+        }
+      ],
+      "adjudication": {
+        "actor_id": "agent-c",
+        "actor_kind": "subagent",
+        "model": "codex",
+        "run_id": "elife-98468-c",
+        "findings": [
+          {
+            "finding_id": "elife-98468-f1",
+            "role": "text-reviewer",
+            "category": "clarity",
+            "high_risk": false,
+            "review_id": "elife-98468-review-1",
+            "evidence_excerpt": "Reviewer #1 (Public review): In this manuscript, the authors used a coarse-grain"
+          },
+          {
+            "finding_id": "elife-98468-f2",
+            "role": "text-reviewer",
+            "category": "clarity",
+            "high_risk": false,
+            "review_id": "elife-98468-review-2",
+            "evidence_excerpt": "Reviewer #2 (Public review): Summary: This study uses a coarse-grained model for"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "f1000-179642",
+      "provider": "f1000research",
+      "venue": "F1000Research",
+      "record_id": "10.12688/f1000research.179642.1",
+      "record_url": "https://f1000research.com/articles/15-679/v1",
+      "license": "CC-BY-4.0",
+      "license_url": "https://f1000research.com/about/policies",
+      "record_sha256": "bbdf5780110410342136eda327e473025831dbb8728f276a6bdcf3d5ea604b76",
+      "evaluation_tier": "review_only_legacy",
+      "expert_calibrated": false,
+      "annotation_runs": [
+        {
+          "actor_id": "agent-a",
+          "actor_kind": "subagent",
+          "model": "proxy-model-a",
+          "run_id": "run-179642-a",
+          "input_sha256": "bbdf5780110410342136eda327e473025831dbb8728f276a6bdcf3d5ea604b76",
+          "findings": [
+            {
+              "finding_id": "A-179642-01",
+              "role": "experiment-reviewer",
+              "category": "study_design_soundness",
+              "high_risk": true,
+              "review_id": "f1000-179642-review-akhtar-khan",
+              "evidence_excerpt": "Is the study design appropriate and is the work technically sound? Yes."
+            },
+            {
+              "finding_id": "A-179642-02",
+              "role": "experiment-reviewer",
+              "category": "replication_details",
+              "high_risk": true,
+              "review_id": "f1000-179642-review-akhtar-khan",
+              "evidence_excerpt": "Are sufficient details of methods and analysis provided to allow replication by others? Yes."
+            },
+            {
+              "finding_id": "A-179642-03",
+              "role": "experiment-reviewer",
+              "category": "source_data_availability",
+              "high_risk": true,
+              "review_id": "f1000-179642-review-suraj-behera",
+              "evidence_excerpt": "Are all the source data underlying the results available to ensure full reproducibility? Yes."
+            }
+          ]
+        },
+        {
+          "actor_id": "agent-b",
+          "actor_kind": "subagent",
+          "model": "proxy-model-b",
+          "run_id": "run-179642-b",
+          "input_sha256": "bbdf5780110410342136eda327e473025831dbb8728f276a6bdcf3d5ea604b76",
+          "findings": [
+            {
+              "finding_id": "B-179642-01",
+              "role": "text-reviewer",
+              "category": "presentation_and_citations",
+              "high_risk": false,
+              "review_id": "f1000-179642-review-suraj-behera",
+              "evidence_excerpt": "Is the work clearly and accurately presented and does it cite the current literature? Yes."
+            },
+            {
+              "finding_id": "B-179642-02",
+              "role": "experiment-reviewer",
+              "category": "replication_details",
+              "high_risk": true,
+              "review_id": "f1000-179642-review-suraj-behera",
+              "evidence_excerpt": "Are sufficient details of methods and analysis provided to allow replication by others? Yes."
+            },
+            {
+              "finding_id": "B-179642-03",
+              "role": "theory-reviewer",
+              "category": "conclusion_support",
+              "high_risk": true,
+              "review_id": "f1000-179642-review-akhtar-khan",
+              "evidence_excerpt": "Are the conclusions drawn adequately supported by the results? Yes."
+            }
+          ]
+        }
+      ],
+      "adjudication": {
+        "actor_id": "agent-adjudicator",
+        "actor_kind": "subagent",
+        "model": "proxy-model-c",
+        "run_id": "run-179642-c",
+        "findings": [
+          {
+            "finding_id": "C-179642-01",
+            "role": "text-reviewer",
+            "category": "presentation_and_citations",
+            "high_risk": false,
+            "review_id": "f1000-179642-review-suraj-behera",
+            "evidence_excerpt": "Is the work clearly and accurately presented and does it cite the current literature? Yes."
+          },
+          {
+            "finding_id": "C-179642-02",
+            "role": "experiment-reviewer",
+            "category": "replication_details",
+            "high_risk": true,
+            "review_id": "f1000-179642-review-akhtar-khan",
+            "evidence_excerpt": "Are sufficient details of methods and analysis provided to allow replication by others? Yes."
+          },
+          {
+            "finding_id": "C-179642-03",
+            "role": "experiment-reviewer",
+            "category": "source_data_availability",
+            "high_risk": true,
+            "review_id": "f1000-179642-review-suraj-behera",
+            "evidence_excerpt": "Are all the source data underlying the results available to ensure full reproducibility? Yes."
+          },
+          {
+            "finding_id": "C-179642-04",
+            "role": "theory-reviewer",
+            "category": "conclusion_support",
+            "high_risk": true,
+            "review_id": "f1000-179642-review-akhtar-khan",
+            "evidence_excerpt": "Are the conclusions drawn adequately supported by the results? Yes."
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "f1000-19455",
+      "provider": "f1000research",
+      "venue": "F1000Research",
+      "record_id": "10.12688/f1000research.19455.1",
+      "record_url": "https://f1000research.com/articles/8-1020/v1",
+      "license": "CC-BY-4.0",
+      "license_url": "https://f1000research.com/about/policies",
+      "record_sha256": "df24cd4bfcdc3a53e0c5d9e646e7db379c1e3b8dc65da4a7d52a0b0626c2d2fe",
+      "evaluation_tier": "review_only_legacy",
+      "expert_calibrated": false,
+      "annotation_runs": [
+        {
+          "actor_id": "agent-a",
+          "actor_kind": "subagent",
+          "model": "gpt-5",
+          "run_id": "agent-a-20260904",
+          "input_sha256": "df24cd4bfcdc3a53e0c5d9e646e7db379c1e3b8dc65da4a7d52a0b0626c2d2fe",
+          "findings": [
+            {
+              "finding_id": "A-19455-01",
+              "role": "experiment-reviewer",
+              "category": "methods_reproducibility",
+              "high_risk": true,
+              "review_id": "10.5256/f1000research.21329.r50923",
+              "evidence_excerpt": "There are no details. What type of tests or analysis did you perform?"
+            },
+            {
+              "finding_id": "A-19455-02",
+              "role": "theory-reviewer",
+              "category": "model_construction",
+              "high_risk": true,
+              "review_id": "10.5256/f1000research.21329.r50923",
+              "evidence_excerpt": "The model designing step needs more description especially the role of CBCT and the correlation with the 3D scanning."
+            },
+            {
+              "finding_id": "A-19455-03",
+              "role": "experiment-reviewer",
+              "category": "test_configuration",
+              "high_risk": true,
+              "review_id": "10.5256/f1000research.21329.r57384",
+              "evidence_excerpt": "Please discuss the ball-contact points and localization in the test configuration that would affect the force distribution in the tooth."
+            },
+            {
+              "finding_id": "A-19455-04",
+              "role": "text-reviewer",
+              "category": "literature_context",
+              "high_risk": false,
+              "review_id": "10.5256/f1000research.21329.r57384",
+              "evidence_excerpt": "The manuscript needs more literature review in the introduction."
+            }
+          ]
+        },
+        {
+          "actor_id": "agent-b",
+          "actor_kind": "subagent",
+          "model": "gpt-5",
+          "run_id": "agent-b-20260904",
+          "input_sha256": "df24cd4bfcdc3a53e0c5d9e646e7db379c1e3b8dc65da4a7d52a0b0626c2d2fe",
+          "findings": [
+            {
+              "finding_id": "B-19455-01",
+              "role": "experiment-reviewer",
+              "category": "methods_reporting",
+              "high_risk": false,
+              "review_id": "10.5256/f1000research.21329.r50923",
+              "evidence_excerpt": "What type of tests or analysis did you perform?"
+            },
+            {
+              "finding_id": "B-19455-02",
+              "role": "experiment-reviewer",
+              "category": "model_construction_reproducibility",
+              "high_risk": false,
+              "review_id": "10.5256/f1000research.21329.r50923",
+              "evidence_excerpt": "The model designing step needs more description especially the role of CBCT and the correlation with the 3D scanning."
+            },
+            {
+              "finding_id": "B-19455-03",
+              "role": "experiment-reviewer",
+              "category": "loading_configuration_validity",
+              "high_risk": true,
+              "review_id": "10.5256/f1000research.21329.r57384",
+              "evidence_excerpt": "Please discuss the ball-contact points and localization in the test configuration that would affect the force distribution in the tooth."
+            },
+            {
+              "finding_id": "B-19455-04",
+              "role": "text-reviewer",
+              "category": "literature_context",
+              "high_risk": false,
+              "review_id": "10.5256/f1000research.21329.r57384",
+              "evidence_excerpt": "The manuscript needs more literature review in the introduction."
+            }
+          ]
+        }
+      ],
+      "adjudication": {
+        "actor_id": "agent-c",
+        "actor_kind": "subagent",
+        "model": "gpt-5",
+        "run_id": "agent-c-20260904",
+        "findings": [
+          {
+            "finding_id": "C-19455-01",
+            "role": "experiment-reviewer",
+            "category": "methods_reproducibility",
+            "high_risk": true,
+            "review_id": "10.5256/f1000research.21329.r50923",
+            "evidence_excerpt": "There are no details. What type of tests or analysis did you perform?"
+          },
+          {
+            "finding_id": "C-19455-02",
+            "role": "experiment-reviewer",
+            "category": "model_construction",
+            "high_risk": true,
+            "review_id": "10.5256/f1000research.21329.r50923",
+            "evidence_excerpt": "The model designing step needs more description especially the role of CBCT and the correlation with the 3D scanning."
+          },
+          {
+            "finding_id": "C-19455-03",
+            "role": "experiment-reviewer",
+            "category": "test_configuration",
+            "high_risk": true,
+            "review_id": "10.5256/f1000research.21329.r57384",
+            "evidence_excerpt": "Please discuss the ball-contact points and localization in the test configuration that would affect the force distribution in the tooth."
+          },
+          {
+            "finding_id": "C-19455-04",
+            "role": "text-reviewer",
+            "category": "literature_context",
+            "high_risk": false,
+            "review_id": "10.5256/f1000research.21329.r57384",
+            "evidence_excerpt": "The manuscript needs more literature review in the introduction."
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "f1000-73061",
+      "provider": "f1000research",
+      "venue": "F1000Research",
+      "record_id": "10.12688/f1000research.73061.1",
+      "record_url": "https://f1000research.com/articles/10-1017",
+      "license": "CC-BY-4.0",
+      "license_url": "https://f1000research.com/about/policies",
+      "record_sha256": "6c4f53e841e1410875985db0d3f136f747a5a3cae57ea273175780cb8e59d707",
+      "evaluation_tier": "review_only_legacy",
+      "expert_calibrated": false,
+      "annotation_runs": [
+        {
+          "actor_id": "agent-a",
+          "actor_kind": "subagent",
+          "model": "gpt-5",
+          "run_id": "agent-a-20260904",
+          "input_sha256": "6c4f53e841e1410875985db0d3f136f747a5a3cae57ea273175780cb8e59d707",
+          "findings": [
+            {
+              "finding_id": "A-73061-01",
+              "role": "experiment-reviewer",
+              "category": "simulation_reproducibility",
+              "high_risk": true,
+              "review_id": "10.5256/f1000research.76684.r96351",
+              "evidence_excerpt": "The authors need to provide more details on how the simulation was conducted such that it can be reproducible."
+            },
+            {
+              "finding_id": "A-73061-02",
+              "role": "theory-reviewer",
+              "category": "mesh_convergence",
+              "high_risk": true,
+              "review_id": "10.5256/f1000research.76684.r96351",
+              "evidence_excerpt": "Also, on the ANSYS simulation, did the authors carry out a mesh convergence study on the meshes used."
+            },
+            {
+              "finding_id": "A-73061-03",
+              "role": "theory-reviewer",
+              "category": "mesh_quality",
+              "high_risk": true,
+              "review_id": "10.5256/f1000research.76684.r96351",
+              "evidence_excerpt": "Using different types of element types without checking the quality of the meshes can always give a wrong result."
+            },
+            {
+              "finding_id": "A-73061-04",
+              "role": "text-reviewer",
+              "category": "results_clarity",
+              "high_risk": false,
+              "review_id": "10.5256/f1000research.76684.r96352",
+              "evidence_excerpt": "In general, the Authors should take the opportunity to refine the explanations/texts on the findings for clarity, especially with regard to the blunt and sharp crack tips."
+            },
+            {
+              "finding_id": "A-73061-05",
+              "role": "experiment-reviewer",
+              "category": "measurement_method_reporting",
+              "high_risk": false,
+              "review_id": "10.5256/f1000research.76684.r96352",
+              "evidence_excerpt": "The use of DIC should be explained in more details and the discussion on the results should be further elaborated."
+            }
+          ]
+        },
+        {
+          "actor_id": "agent-b",
+          "actor_kind": "subagent",
+          "model": "gpt-5",
+          "run_id": "agent-b-20260904",
+          "input_sha256": "6c4f53e841e1410875985db0d3f136f747a5a3cae57ea273175780cb8e59d707",
+          "findings": [
+            {
+              "finding_id": "B-73061-01",
+              "role": "experiment-reviewer",
+              "category": "simulation_reproducibility",
+              "high_risk": false,
+              "review_id": "10.5256/f1000research.76684.r96351",
+              "evidence_excerpt": "The authors need to provide more details on how the simulation was conducted such that it can be reproducible."
+            },
+            {
+              "finding_id": "B-73061-02",
+              "role": "experiment-reviewer",
+              "category": "mesh_convergence",
+              "high_risk": true,
+              "review_id": "10.5256/f1000research.76684.r96351",
+              "evidence_excerpt": "Also, on the ANSYS simulation, did the authors carry out a mesh convergence study on the meshes used."
+            },
+            {
+              "finding_id": "B-73061-03",
+              "role": "experiment-reviewer",
+              "category": "mesh_quality",
+              "high_risk": true,
+              "review_id": "10.5256/f1000research.76684.r96351",
+              "evidence_excerpt": "Using different types of element types without checking the quality of the meshes can always give a wrong result."
+            },
+            {
+              "finding_id": "B-73061-04",
+              "role": "text-reviewer",
+              "category": "results_clarity",
+              "high_risk": false,
+              "review_id": "10.5256/f1000research.76684.r96352",
+              "evidence_excerpt": "In general, the Authors should take the opportunity to refine the explanations/texts on the findings for clarity, especially with regard to the blunt and sharp crack tips."
+            },
+            {
+              "finding_id": "B-73061-05",
+              "role": "experiment-reviewer",
+              "category": "measurement_method_reporting",
+              "high_risk": false,
+              "review_id": "10.5256/f1000research.76684.r96352",
+              "evidence_excerpt": "The use of DIC should be explained in more details"
+            },
+            {
+              "finding_id": "B-73061-06",
+              "role": "text-reviewer",
+              "category": "results_discussion",
+              "high_risk": false,
+              "review_id": "10.5256/f1000research.76684.r96352",
+              "evidence_excerpt": "the discussion on the results should be further elaborated."
+            }
+          ]
+        }
+      ],
+      "adjudication": {
+        "actor_id": "agent-c",
+        "actor_kind": "subagent",
+        "model": "gpt-5",
+        "run_id": "agent-c-20260904",
+        "findings": [
+          {
+            "finding_id": "C-73061-01",
+            "role": "experiment-reviewer",
+            "category": "simulation_reproducibility",
+            "high_risk": true,
+            "review_id": "10.5256/f1000research.76684.r96351",
+            "evidence_excerpt": "The authors need to provide more details on how the simulation was conducted such that it can be reproducible."
+          },
+          {
+            "finding_id": "C-73061-02",
+            "role": "experiment-reviewer",
+            "category": "mesh_convergence",
+            "high_risk": true,
+            "review_id": "10.5256/f1000research.76684.r96351",
+            "evidence_excerpt": "Also, on the ANSYS simulation, did the authors carry out a mesh convergence study on the meshes used."
+          },
+          {
+            "finding_id": "C-73061-03",
+            "role": "experiment-reviewer",
+            "category": "mesh_quality",
+            "high_risk": true,
+            "review_id": "10.5256/f1000research.76684.r96351",
+            "evidence_excerpt": "Using different types of element types without checking the quality of the meshes can always give a wrong result."
+          },
+          {
+            "finding_id": "C-73061-04",
+            "role": "text-reviewer",
+            "category": "results_clarity",
+            "high_risk": false,
+            "review_id": "10.5256/f1000research.76684.r96352",
+            "evidence_excerpt": "In general, the Authors should take the opportunity to refine the explanations/texts on the findings for clarity, especially with regard to the blunt and sharp crack tips."
+          },
+          {
+            "finding_id": "C-73061-05",
+            "role": "experiment-reviewer",
+            "category": "measurement_method_reporting",
+            "high_risk": false,
+            "review_id": "10.5256/f1000research.76684.r96352",
+            "evidence_excerpt": "The use of DIC should be explained in more details and the discussion on the results should be further elaborated."
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "case_id": "f1000-73061",
+  "provider": "f1000research",
+  "venue": "F1000Research",
+  "record_id": "10.12688/f1000research.73061.1",
+  "record_url": "https://f1000research.com/articles/10-1017",
+  "license": "CC-BY-4.0",
+  "license_url": "https://f1000research.com/about/policies",
+  "retrieved_at": "2026-09-04",
+  "paper": {
+    "title": "Modelling mode I failure at crack tip with verifications using digital image correlation",
+    "text": "Experiments and finite element simulations compare strain fields and stress intensity factors for a cracked PMMA disc under Mode I loading.",
+    "license": "CC-BY-4.0"
+  },
+  "reviews": [
+    {
+      "review_id": "10.5256/f1000research.76684.r96351",
+      "url": "https://doi.org/10.5256/f1000research.76684.r96351",
+      "attribution": "Ifeanyi Emmanuel Kalu",
+      "text": "The authors need to provide more details on how the simulation was conducted such that it can be reproducible. Also, on the ANSYS simulation, did the authors carry out a mesh convergence study on the meshes used. Using different types of element types without checking the quality of the meshes can always give a wrong result.",
+      "license": "CC-BY-4.0"
+    },
+    {
+      "review_id": "10.5256/f1000research.76684.r96352",
+      "url": "https://doi.org/10.5256/f1000research.76684.r96352",
+      "attribution": "Judha Purbolaksono",
+      "text": "In general, the Authors should take the opportunity to refine the explanations/texts on the findings for clarity, especially with regard to the blunt and sharp crack tips. The use of DIC should be explained in more details and the discussion on the results should be further elaborated.",
+      "license": "CC-BY-4.0"
+    }
+  ]
+}

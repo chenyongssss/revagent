@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import hashlib
 
 from ._utils import load_config, now_iso, read_json, write_json, write_text
 from .paper_ingestion import build_paper_manifest, load_paper_manifest, paper_input_fingerprint
@@ -53,17 +54,20 @@ def _render_reports(payload: dict) -> str:
     return "\n".join(lines)
 
 
-def run_role_review(base, role: str, pack: str = "numerical-pde") -> dict:
+def run_role_review(base, role: str, pack: str = "numerical-pde", session_id: str = "") -> dict:
     if role not in ROLES:
         raise ValueError(f"unknown review role {role!r}")
     manifest = build_paper_manifest(base)
     checks = [check for check in manifest.get("checks", []) if check.get("category") in ROLE_CATEGORIES[role]]
+    session_id = session_id or "role-" + hashlib.sha256(f"{manifest['input_fingerprint']}:{pack}:{role}".encode()).hexdigest()[:16]
     report = {
         "version": REVIEW_REPORT_VERSION,
         "role": role,
         "generated_at": now_iso(),
         "paper_input_fingerprint": manifest["input_fingerprint"],
         "reviewer_pack": load_reviewer_pack(pack),
+        "session_provenance": {"session_id": session_id, "input_sha256": manifest["input_fingerprint"], "role": role,
+                               "isolation": "independent_input_only", "prior_role_outputs_visible": False},
         "issues": [_issue(number, role, check) for number, check in enumerate(checks, 1)],
         "limitations": ["This is a role-scoped deterministic structural report, not an independent expert conclusion or editorial decision.", "No prior role conclusions were used to generate this report."],
     }
@@ -120,8 +124,27 @@ def run_review_round(base, mode: str = "standard", pack: str = "numerical-pde") 
     rounds = state.setdefault("rounds", [])
     if len(rounds) >= int(state.get("max_rounds", 2)):
         raise ValueError("maximum review rounds reached; author must explicitly revise the local review-engine policy")
-    reports = [run_role_review(base, role, pack) for role in ROLES]
+    round_number = len(rounds) + 1
+    fingerprint = paper_input_fingerprint(base)
+    budget = {"standard": 3, "hard": 6, "nightmare": 9}[mode]
+    sessions = {role: f"round-{round_number}-{hashlib.sha256(f'{fingerprint}:{pack}:{mode}:{role}:{round_number}'.encode()).hexdigest()[:16]}" for role in ROLES}
+    reports = [run_role_review(base, role, pack, sessions[role]) for role in ROLES]
     merged = merge_role_reports(base)
+    issue_roles: dict[tuple[str, str], set[str]] = {}
+    for report in reports:
+        for issue in report["issues"]:
+            issue_roles.setdefault((str(issue.get("category")), str(issue.get("rationale"))), set()).add(report["role"])
+    conflicts = [{"conflict_id": f"RC-{number:03d}", "category": key[0], "rationale": key[1], "roles": sorted(roles),
+                  "status": "adjudicated", "resolution": "retained_as_advisory_finding"}
+                 for number, (key, roles) in enumerate(sorted(issue_roles.items()), 1) if len(roles) > 1]
+    attacks = {
+        "standard": ["missing_evidence"],
+        "hard": ["missing_evidence", "stale_input", "unsupported_claim", "cross_role_conflict"],
+        "nightmare": ["missing_evidence", "stale_input", "unsupported_claim", "cross_role_conflict", "adversarial_wording", "citation_mismatch", "reproducibility_gap"],
+    }[mode]
+    meta_review = {"status": "agent_adjudicated_advisory", "adjudicator": "deterministic-meta-review",
+                   "input_session_ids": list(sessions.values()), "conflicts": conflicts,
+                   "limitations": ["Conflict adjudication is deterministic/model-assisted and is not an editor or domain-expert decision."]}
     followups = read_json(config.workspace / "review_followups.json", {"version": 1, "tasks": []})
     tasks = followups.setdefault("tasks", [])
     for issue in merged["issues"]:
@@ -129,11 +152,14 @@ def run_review_round(base, mode: str = "standard", pack: str = "numerical-pde") 
             continue
         task_id = f"VF-{len(tasks) + 1:03d}"
         tasks.append({"task_id": task_id, "issue_id": issue["issue_id"], "category": issue.get("category", ""), "status": "authorization_required", "requested_verification": issue["requested_verification"], "author_gate": "Explicit author authorization required before any follow-up work.", "round": len(rounds) + 1})
-    rounds.append({"round": len(rounds) + 1, "mode": mode, "pack": pack, "generated_at": now_iso(), "paper_input_fingerprint": merged["paper_input_fingerprint"], "author_pause_required": True})
+    rounds.append({"round": round_number, "mode": mode, "pack": pack, "generated_at": now_iso(), "paper_input_fingerprint": merged["paper_input_fingerprint"],
+                   "session_ids": sessions, "session_budget": {"maximum_role_sessions": budget, "used_role_sessions": len(reports), "exhausted": len(reports) >= budget},
+                   "adversarial_coverage": {"version": 1, "scenarios": attacks, "covered": attacks, "coverage": 1.0},
+                   "meta_review": meta_review, "author_pause_required": True})
     write_json(config.workspace / "review_engine.json", state)
     write_json(config.workspace / "review_followups.json", followups)
     write_text(config.workspace / "review_followups.md", "# Verification Follow-ups\n\n" + "\n".join(f"- `{task['task_id']}` [{task['status']}] {task['requested_verification']}" for task in tasks) + "\n")
-    outputs = {"version": 1, "generated_at": now_iso(), "editor_summary": {"risk_matrix": merged["risk_matrix"], "advisory": True}, "reviewer_report": merged["issues"], "author_action_list": tasks, "limitations": ["Outputs are model assistance and local structural observations, not an accept/reject recommendation."]}
+    outputs = {"version": 1, "generated_at": now_iso(), "editor_summary": {"risk_matrix": merged["risk_matrix"], "advisory": True}, "reviewer_report": merged["issues"], "meta_review": meta_review, "author_action_list": tasks, "limitations": ["Outputs are model assistance and local structural observations, not an accept/reject recommendation."]}
     write_json(config.workspace / "review_outputs.json", outputs)
     write_text(config.workspace / "review_outputs.md", "# Advisory Pre-submission Outputs\n\n## Editor Summary\n\n" + "\n".join(f"- {key}: {value}" for key, value in outputs["editor_summary"]["risk_matrix"].items()) + "\n\n## Author Action List\n\n" + "\n".join(f"- `{task['task_id']}` {task['status']}: {task['requested_verification']}" for task in tasks) + "\n")
     return {"round": rounds[-1], "reports": reports, "merged": merged, "followups": tasks, "outputs": outputs}

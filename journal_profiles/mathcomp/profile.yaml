@@ -1,7 +1,7 @@
 # Unconfirmed local starter. Verify against official policy before use.
 display_name: Mathematics of Computation
 version: 1
-source_url:
+source_url: https://www.ams.org/journals/mcom/2025-94-356/mcom-94-356-print-matter.pdf
 source_checked_at: 2026-08-30
 expires_at: 2026-09-30
 human_confirmed: false

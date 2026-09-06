@@ -52,3 +52,18 @@ def test_rebuttal_lint_blocks_commitment_tone_and_rulepack_length(tmp_path: Path
     assert len(final["stress_test_sha256"]) == 64
     assert clean in (tmp_path / ".revagent" / "rebuttal_draft.md").read_text(encoding="utf-8")
     assert "AUTHOR MUST PROVIDE" not in rebuttal_draft(tmp_path)
+
+
+def test_rebuttal_atomizes_compound_requests_and_exports_traceable_formats(tmp_path: Path) -> None:
+    (tmp_path / "paper.tex").write_text("x", encoding="utf-8")
+    init_workspace(tmp_path, "siam", ".", "paper.tex")
+    items = '[{"id":"R009","reviewer":"Reviewer 2","comment":"1. Clarify convergence.\\n2. Provide the solver tolerance."}]'
+    (tmp_path / ".revagent" / "review_items.json").write_text(items, encoding="utf-8")
+    parsed = parse_rebuttal(tmp_path)
+    atoms = parsed["threads"]["R009"]["atoms"]
+    assert [atom["atom_id"] for atom in atoms] == ["RB-R009-1", "RB-R009-2"]
+    assert all(atom["source_item_id"] == "R009" and atom["source_comment"] for atom in atoms)
+    rebuttal_draft(tmp_path)
+    payload = __import__("json").loads((tmp_path / ".revagent" / "rebuttal_draft.json").read_text(encoding="utf-8"))
+    assert len(payload["atoms"]) == 2
+    assert (tmp_path / ".revagent" / "rebuttal_paste_ready.txt").read_text(encoding="utf-8").count("AUTHOR MUST PROVIDE") == 2

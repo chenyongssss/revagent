@@ -26,6 +26,26 @@ nonzero and `revagent validate` emits a warning if either input changes; rerun
 surface the same `stale` status. This tracks report provenance only and does
 not certify manuscript correctness or submission readiness.
 
+### Public-source silver verification
+
+When no domain expert is available, integrations can call
+`rulepack_silver.initialize_rulepack_source`, make two independent calls to
+`annotate_rulepack_source`, and have a distinct actor call
+`adjudicate_rulepack_source`. Every extracted field must carry a verbatim
+excerpt from the frozen HTTPS source snapshot. `verify_rulepack_silver` fails
+closed if the rulepack changes afterward. This workflow is always labelled
+`public_source_agent_adjudicated_not_expert_calibrated`; it never sets or
+substitutes for `human_confirmed`.
+
+After `paper-ingest`, `paper_quality.build_doi_verification_report` matches
+local bibliography DOI values against consent-gated cached provider metadata
+and writes `.revagent/doi_verification_report.json`.
+`paper_quality.build_high_risk_traceability_report` writes
+`.revagent/high_risk_traceability_report.json` and blocks each theorem-like
+claim missing a source/hash, observed PDF page, structural evidence, reviewed
+dependency, or input snapshot. These are provenance-completeness checks, not
+claims of bibliographic validity or mathematical correctness.
+
 ## Paper manifest and rendered observations
 
 `revagent paper-ingest` creates a versioned source/PDF manifest. For each
@@ -68,7 +88,7 @@ interpretation and never verify facts, experiments, or mathematical claims.
 
 ## Consent-gated literature metadata
 
-OpenAlex, Crossref, arXiv, and DOI content-negotiation connectors retrieve
+OpenAlex, Crossref, arXiv, Semantic Scholar, and DOI content-negotiation connectors retrieve
 metadata only. Each request requires both provider consent and a matching,
 unused per-query authorization; remote requests also require a passing privacy
 scan. For example:
@@ -96,6 +116,14 @@ is derived conservatively from Crossref `update-to` and relationship metadata.
 `no_retraction_metadata_observed` means only that the permitted cached metadata
 contained no matching assertion; it never means that a work is confirmed not
 to be retracted.
+
+`build_literature_advisory_report` writes `literature_advisory.json` with
+provenance-bound novelty-comparison candidates and reproducibility metadata
+hints. Its status is always `metadata_advisory_only_not_expert_calibrated`:
+metadata availability, references, or an open-access copy never demonstrate
+novelty or reproducibility. Retraction checks also surface deposited retraction
+relations, expression-of-concern signals, and referenced targets while retaining
+the provider authorization and response hash.
 
 Claim alignment is local and deterministic: it compares indexed claim excerpts
 with permitted metadata titles and emits at most five lexical-overlap candidates

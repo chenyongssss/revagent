@@ -83,6 +83,11 @@ from .rebuttal import approve_rebuttal_atom, finalize_rebuttal, parse_rebuttal, 
 from .literature import FETCH_PROVIDERS, PROVIDERS, authorize_literature_provider, authorize_literature_query, build_citation_graph, build_claim_literature_alignments, build_retraction_report, cache_literature_query, fetch_literature_provider, fetch_openalex, literature_provenance_report, literature_status, review_claim_literature_alignment
 from .history import approve_history, delete_history, enforce_history_retention, export_history, import_history, rebuild_history_index, redact_history, search_history
 from .history_intake import adjudicate_history_case, annotate_history_case, export_history_fixture, initialize_history_case, publish_history_quality
+from .public_review import adjudicate_public_review_case, annotate_public_review_case, fetch_openreview_batch, initialize_public_review_case, public_review_quality_report, public_review_pack_coverage_report
+from .roadmap_acceptance import verify_roadmap
+from .research_project import add_research_task, configure_research_provider, create_project_family, evolve_research_project, initialize_research_project, record_task_result, research_frontier, verify_task_result, write_evidence_report, write_research_dashboard
+from .revision_workflow import apply_revision_candidates, run_revision_workflow, revision_consistency_report
+from .revision_corpus import audit_local_revision_corpus, audit_public_revision_catalog, fetch_public_revision_catalog
 from .validation import doctor, validate_workspace
 from .external_agent import (
     external_agent_run_artifact,
@@ -458,6 +463,55 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_history.add_argument("--suite", required=True)
     history_publish = sub.add_parser("history-quality-publish", help="Publish measured quality only for authorized real history cases.")
     history_publish.add_argument("--suite", required=True)
+    public_review = sub.add_parser("public-review", help="Build a non-expert silver benchmark from licensed public peer-review records.")
+    public_review_sub = public_review.add_subparsers(dest="public_review_command", required=True)
+    public_fetch = public_review_sub.add_parser("fetch-openreview", help="Fetch and register a bounded licensed OpenReview batch.")
+    public_fetch.add_argument("--venue-id", required=True); public_fetch.add_argument("--domain", default="computational-math", choices=("computational-math", "numerical-pde", "optimization", "scientific-ml")); public_fetch.add_argument("--limit", type=int, default=10); public_fetch.add_argument("--fixture"); public_fetch.add_argument("--api-base", default="https://api2.openreview.net"); public_fetch.add_argument("--confirm", action="store_true")
+    public_init = public_review_sub.add_parser("init")
+    public_init.add_argument("case_id"); public_init.add_argument("--record", required=True); public_init.add_argument("--confirm", action="store_true")
+    public_annotate = public_review_sub.add_parser("annotate")
+    public_annotate.add_argument("case_id"); public_annotate.add_argument("--actor", required=True); public_annotate.add_argument("--model", required=True); public_annotate.add_argument("--run-id", required=True); public_annotate.add_argument("--annotation", required=True)
+    public_adjudicate = public_review_sub.add_parser("adjudicate")
+    public_adjudicate.add_argument("case_id"); public_adjudicate.add_argument("--actor", required=True); public_adjudicate.add_argument("--model", required=True); public_adjudicate.add_argument("--run-id", required=True); public_adjudicate.add_argument("--annotation", required=True)
+    public_review_sub.add_parser("report")
+    revision_corpus = sub.add_parser("revision-corpus", help="Audit local multi-round revision cases without copying their content.")
+    revision_corpus_sub = revision_corpus.add_subparsers(dest="revision_corpus_command", required=True)
+    revision_corpus_audit = revision_corpus_sub.add_parser("audit")
+    revision_corpus_audit.add_argument("--cases-dir", required=True)
+    revision_corpus_audit.add_argument("--case", action="append", required=True, metavar="FOLDER=ROUNDS")
+    revision_corpus_public = revision_corpus_sub.add_parser("audit-public")
+    revision_corpus_public.add_argument("--catalog", required=True)
+    revision_corpus_public.add_argument("--cache-dir", required=True)
+    revision_corpus_fetch = revision_corpus_sub.add_parser("fetch-public")
+    revision_corpus_fetch.add_argument("--catalog", required=True)
+    revision_corpus_fetch.add_argument("--cache-dir", required=True)
+    revision_corpus_fetch.add_argument("--confirm", action="store_true")
+    revision_corpus_fetch.add_argument("--overwrite", action="store_true")
+    revision_corpus_fetch.add_argument("--case-id", action="append", default=[])
+    research_init = sub.add_parser("research-init", help="Initialize a durable general research project.")
+    research_init.add_argument("--title", required=True); research_init.add_argument("--question", required=True)
+    research_add = sub.add_parser("research-task-add", help="Add a dependency-aware task to the research frontier.")
+    research_add.add_argument("--title", required=True); research_add.add_argument("--depends-on", action="append", default=[])
+    sub.add_parser("research-frontier", help="Reconcile and show the resumable research task frontier.")
+    research_result = sub.add_parser("research-result", help="Record evidence for a ready research task without verifying it.")
+    research_result.add_argument("task_id"); research_result.add_argument("--evidence", action="append", required=True)
+    research_verify = sub.add_parser("research-verify", help="Human-verify an evidence-backed research task.")
+    research_verify.add_argument("task_id"); research_verify.add_argument("--reviewer", required=True); research_verify.add_argument("--note", required=True); research_verify.add_argument("--approved", action="store_true")
+    research_report = sub.add_parser("research-report", help="Write an immutable versioned evidence report.")
+    research_report.add_argument("task_id")
+    research_family = sub.add_parser("research-family", help="Create an explicitly approved related research project.")
+    research_family.add_argument("--destination", required=True); research_family.add_argument("--title", required=True); research_family.add_argument("--approver", required=True); research_family.add_argument("--note", required=True); research_family.add_argument("--approved", action="store_true")
+    research_evolve = sub.add_parser("research-evolve", help="Generalize a human-verified result into a child project.")
+    research_evolve.add_argument("task_id"); research_evolve.add_argument("--destination", required=True); research_evolve.add_argument("--generalization", required=True); research_evolve.add_argument("--approver", required=True); research_evolve.add_argument("--note", required=True); research_evolve.add_argument("--approved", action="store_true")
+    research_provider = sub.add_parser("research-provider", help="Configure a scoped, consent-gated research provider.")
+    research_provider.add_argument("provider", choices=("ollama", "vllm", "openai-compatible", "codex", "claude")); research_provider.add_argument("--model", required=True); research_provider.add_argument("--endpoint", default=""); research_provider.add_argument("--scope", action="append", required=True); research_provider.add_argument("--budget", type=float, default=0.0); research_provider.add_argument("--consent", action="store_true")
+    sub.add_parser("research-dashboard", help="Write the static local general-research dashboard.")
+    revision_run = sub.add_parser("revision-run", help="Run the author-focused comment-to-rebuttal workflow.")
+    revision_run.add_argument("--comments", required=True)
+    revision_consistency = sub.add_parser("revision-consistency", help="Check reviewer response and revision consistency.")
+    sub.add_parser("revision-apply", help="Apply already author-approved revision candidates and revalidate.")
+    roadmap = sub.add_parser("roadmap-verify", help="Verify roadmap phases 1-8 from checked-in machine evidence.")
+    roadmap.add_argument("--phase", type=int, action="append", choices=range(1, 9), dest="phases")
     benchmark_catalog = sub.add_parser("benchmark-synthetic-catalog", help="Generate a text-free local catalog of at least 200 synthetic evaluation fixtures.")
     benchmark_catalog.add_argument("--count", type=int, default=200)
     benchmark_shadow = sub.add_parser("benchmark-shadow", help="Register a local-only historical shadow benchmark without copying source text.")
@@ -1394,6 +1448,100 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}"); return 1
         print(f"Published history quality from {report['case_count']} adjudicated real cases")
         return 0
+    if args.command == "public-review":
+        try:
+            if args.public_review_command == "fetch-openreview":
+                result = fetch_openreview_batch(base, args.venue_id, args.domain, args.limit, args.confirm, Path(args.fixture) if args.fixture else None, args.api_base)
+            elif args.public_review_command == "init":
+                result = initialize_public_review_case(base, args.case_id, Path(args.record), args.confirm)
+            elif args.public_review_command == "annotate":
+                result = annotate_public_review_case(base, args.case_id, args.actor, args.model, args.run_id, Path(args.annotation))
+            elif args.public_review_command == "adjudicate":
+                result = adjudicate_public_review_case(base, args.case_id, args.actor, args.model, args.run_id, Path(args.annotation))
+            else:
+                result = public_review_quality_report(base)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        except ValueError as exc:
+            print(f"error: {exc}"); return 1
+        return 0
+    if args.command == "revision-corpus":
+        try:
+            if args.revision_corpus_command == "fetch-public":
+                result = fetch_public_revision_catalog(base, Path(args.catalog), Path(args.cache_dir), args.confirm, args.overwrite, set(args.case_id))
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                return 0
+            if args.revision_corpus_command == "audit-public":
+                result = audit_public_revision_catalog(base, Path(args.catalog), Path(args.cache_dir))
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                return 0
+            rounds = {}
+            for value in args.case:
+                folder, separator, count = value.rpartition("=")
+                if not separator or not folder.strip():
+                    raise ValueError("--case must use FOLDER=ROUNDS")
+                rounds[folder.strip()] = int(count)
+            result = audit_local_revision_corpus(base, Path(args.cases_dir), rounds)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        except (ValueError, OSError) as exc:
+            print(f"error: {exc}")
+            return 1
+        return 0
+    if args.command == "research-init":
+        try: result = initialize_research_project(base, args.title, args.question)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
+    if args.command == "research-task-add":
+        try: result = add_research_task(base, args.title, dependencies=args.depends_on)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
+    if args.command == "research-frontier":
+        try: result = research_frontier(base)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
+    if args.command == "research-result":
+        try: result = record_task_result(base, args.task_id, [Path(item) for item in args.evidence])
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
+    if args.command == "research-verify":
+        try: result = verify_task_result(base, args.task_id, args.reviewer, args.note, approved=args.approved)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
+    if args.command == "research-report":
+        try: result = write_evidence_report(base, args.task_id)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
+    if args.command == "research-family":
+        try: result = create_project_family(base, Path(args.destination), args.title, args.approver, args.note, approved=args.approved)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
+    if args.command == "research-evolve":
+        try: result = evolve_research_project(base, args.task_id, Path(args.destination), args.generalization, args.approver, args.note, approved=args.approved)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
+    if args.command == "research-provider":
+        try: result = configure_research_provider(base, args.provider, args.model, args.endpoint, args.scope, args.budget, consent=args.consent)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
+    if args.command == "research-dashboard":
+        try: result = write_research_dashboard(base)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(result); return 0
+    if args.command == "revision-run":
+        try: result = run_revision_workflow(base, args.comments)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(json.dumps(result, ensure_ascii=True, indent=2)); return 0
+    if args.command == "revision-consistency":
+        try: result = revision_consistency_report(base)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(json.dumps(result, ensure_ascii=True, indent=2)); return 0 if result["ok"] else 1
+    if args.command == "revision-apply":
+        try: result = apply_revision_candidates(base)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(json.dumps(result, ensure_ascii=True, indent=2)); return 0 if not result["apply"].get("blocked") else 1
+    if args.command == "roadmap-verify":
+        try: report = verify_roadmap(base, args.phases)
+        except ValueError as exc: print(f"error: {exc}"); return 1
+        print(json.dumps(report, ensure_ascii=True, indent=2)); return 0 if report["ok"] else 1
     if args.command == "benchmark-shadow":
         try:
             print(json.dumps(register_shadow_benchmark(base, Path(args.case_dir), args.case_id), ensure_ascii=False, indent=2))

@@ -1,0 +1,53 @@
+{
+  "findings": [
+    {
+      "finding_id": "B-73061-01",
+      "role": "experiment-reviewer",
+      "category": "simulation_reproducibility",
+      "high_risk": false,
+      "review_id": "10.5256/f1000research.76684.r96351",
+      "evidence_excerpt": "The authors need to provide more details on how the simulation was conducted such that it can be reproducible."
+    },
+    {
+      "finding_id": "B-73061-02",
+      "role": "experiment-reviewer",
+      "category": "mesh_convergence",
+      "high_risk": true,
+      "review_id": "10.5256/f1000research.76684.r96351",
+      "evidence_excerpt": "Also, on the ANSYS simulation, did the authors carry out a mesh convergence study on the meshes used."
+    },
+    {
+      "finding_id": "B-73061-03",
+      "role": "experiment-reviewer",
+      "category": "mesh_quality",
+      "high_risk": true,
+      "review_id": "10.5256/f1000research.76684.r96351",
+      "evidence_excerpt": "Using different types of element types without checking the quality of the meshes can always give a wrong result."
+    },
+    {
+      "finding_id": "B-73061-04",
+      "role": "text-reviewer",
+      "category": "results_clarity",
+      "high_risk": false,
+      "review_id": "10.5256/f1000research.76684.r96352",
+      "evidence_excerpt": "In general, the Authors should take the opportunity to refine the explanations/texts on the findings for clarity, especially with regard to the blunt and sharp crack tips."
+    },
+    {
+      "finding_id": "B-73061-05",
+      "role": "experiment-reviewer",
+      "category": "measurement_method_reporting",
+      "high_risk": false,
+      "review_id": "10.5256/f1000research.76684.r96352",
+      "evidence_excerpt": "The use of DIC should be explained in more details"
+    },
+    {
+      "finding_id": "B-73061-06",
+      "role": "text-reviewer",
+      "category": "results_discussion",
+      "high_risk": false,
+      "review_id": "10.5256/f1000research.76684.r96352",
+      "evidence_excerpt": "the discussion on the results should be further elaborated."
+    }
+  ],
+  "method_note": "Independent subagent-B coding from the two licensed public review texts only. Each explicit request or validity objection is represented separately. Mesh convergence and mesh quality are high risk because the review explicitly connects them to potentially wrong results. This is agent-coded proxy annotation, not human expert assessment."
+}

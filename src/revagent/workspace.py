@@ -301,9 +301,18 @@ def init_workspace(base: Path, journal: str, tex_root_arg: str, main_tex: str | 
     write_json(ws / "rebuttal_threads.json", {"version": 1, "threads": {}})
     write_text(ws / "rebuttal_threads.md", "# Rebuttal Threads\n\nNo rebuttal threads parsed yet.\n")
     write_text(ws / "rebuttal_draft.md", "# PASTE_READY — Author Review Required\n\nNo rebuttal draft generated yet.\n")
+    write_json(ws / "rebuttal_draft.json", {"version": 1, "status": "not_generated", "atoms": []})
+    write_text(ws / "rebuttal_paste_ready.txt", "[AUTHOR MUST PROVIDE VERIFIED RESPONSE]\n")
     write_json(ws / "rebuttal_stress_test.json", {"version": 2, "ok": False, "open_atoms": []})
     write_text(ws / "rebuttal_stress_test.md", "# Rebuttal Stress Test\n\nNo rebuttal stress test run yet.\n")
     write_json(ws / "rebuttal_final.json", {"version": 2, "status": "not_finalized"})
+    write_json(ws / "review_comment_atoms.json", {"version": 1, "status": "not_run", "atoms": []})
+    write_json(ws / "revision_tasks.json", {"version": 1, "tasks": []})
+    write_json(ws / "revision_consistency.json", {"version": 1, "status": "not_run", "ok": False, "atoms": [], "failures": []})
+    write_text(ws / "revision_consistency.md", "# Revision Consistency\n\nNot run.\n")
+    write_json(ws / "submission_package_status.json", {"version": 1, "status": "author_review_required"})
+    write_json(ws / "public_review_pack_coverage.json", {"version": 1, "status": "not_run", "expert_calibrated": False, "passed": False, "packs": {}})
+    write_text(ws / "public_review_pack_coverage.md", "# Public Review Pack Coverage\n\nNot run. This is not expert calibration.\n")
     write_json(ws / "literature_consent.json", {"version": 1, "authorizations": []})
     write_json(ws / "literature_report.json", {"version": 2, "availability": "not_generated", "retrieved_metadata": [], "excluded_local_only_records": 0})
     write_json(ws / "literature_query_authorizations.json", {"version": 1, "authorizations": []})
@@ -341,6 +350,10 @@ def schema_markdown() -> str:
             "- `item_plans.md`: reviewable markdown rendering of per-item plans.",
             "- `review_analyses.json`: structured reviewer-intent, claim/evidence, risk, and response-strategy records keyed by review item id.",
             "- `review_analyses.md`: reviewable rendering of reviewer intent, claim targets, evidence needs, author verification, and risk notes.",
+            "- `review_comment_atoms.json`: normalized reviewer requests bound to tasks, candidate edits, evidence, and rebuttal atoms.",
+            "- `revision_tasks.json`: author-focused revision task graph with explicit high-risk gates.",
+            "- `revision_consistency.json`: comment/task/candidate/rebuttal consistency checks.",
+            "- `submission_package_status.json`: local author-submission readiness status; never an acceptance or correctness decision.",
             "- `proof_workflows.json`: structured proof workflow records keyed by proof review item id.",
             "- `proof_workflows.md`: reviewable proof workflow status, snapshots, obligations, and approval gates.",
             "- `experiment_manifests.json`: experiment reproducibility contracts keyed by experiment review item id.",
@@ -536,9 +549,13 @@ def migrate_workspace(base: Path, dry_run: bool = True) -> dict[str, object]:
         "rebuttal_threads.json": {"version": 1, "threads": {}},
         "rebuttal_threads.md": "# Rebuttal Threads\n\nNo rebuttal threads parsed yet.\n",
         "rebuttal_draft.md": "# PASTE_READY — Author Review Required\n\nNo rebuttal draft generated yet.\n",
+        "rebuttal_draft.json": {"version": 1, "status": "not_generated", "atoms": []},
+        "rebuttal_paste_ready.txt": "[AUTHOR MUST PROVIDE VERIFIED RESPONSE]\n",
         "rebuttal_stress_test.json": {"version": 2, "ok": False, "open_atoms": []},
         "rebuttal_stress_test.md": "# Rebuttal Stress Test\n\nNo rebuttal stress test run yet.\n",
         "rebuttal_final.json": {"version": 2, "status": "not_finalized"},
+        "public_review_pack_coverage.json": {"version": 1, "status": "not_run", "expert_calibrated": False, "passed": False, "packs": {}},
+        "public_review_pack_coverage.md": "# Public Review Pack Coverage\n\nNot run. This is not expert calibration.\n",
         "literature_consent.json": {"version": 1, "authorizations": []},
         "literature_report.json": {"version": 2, "availability": "not_generated", "retrieved_metadata": [], "excluded_local_only_records": 0},
         "literature_query_authorizations.json": {"version": 1, "authorizations": []},
@@ -873,9 +890,13 @@ def export_artifacts(base: Path) -> Path:
         "rebuttal_threads.json",
         "rebuttal_threads.md",
         "rebuttal_draft.md",
+        "rebuttal_draft.json",
+        "rebuttal_paste_ready.txt",
         "rebuttal_stress_test.json",
         "rebuttal_stress_test.md",
         "rebuttal_final.json",
+        "public_review_pack_coverage.json",
+        "public_review_pack_coverage.md",
         "artifact_registry.json",
         "revision_plan.md",
         "response_letter.md",

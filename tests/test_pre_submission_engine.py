@@ -24,6 +24,12 @@ def test_review_round_is_bounded_and_followups_require_author_authorization(tmp_
     (tmp_path / "paper.tex").write_text("\\documentclass{article}\n\\newtheorem{theorem}{Theorem}\n\\begin{document}\\begin{theorem}Claim.\\end{theorem}\\end{document}\n", encoding="utf-8")
     init_workspace(tmp_path, "siam", ".", "paper.tex")
     result = run_review_round(tmp_path, "nightmare")
+    session_ids = result["round"]["session_ids"]
+    assert len(set(session_ids.values())) == 3
+    assert all(report["session_provenance"]["prior_role_outputs_visible"] is False for report in result["reports"])
+    assert result["round"]["session_budget"]["used_role_sessions"] == 3
+    assert result["round"]["adversarial_coverage"]["coverage"] == 1.0
+    assert result["round"]["meta_review"]["status"] == "agent_adjudicated_advisory"
     assert result["round"]["author_pause_required"] is True
     assert result["outputs"]["editor_summary"]["advisory"] is True
     task = result["followups"][0]

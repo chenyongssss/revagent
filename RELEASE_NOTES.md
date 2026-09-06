@@ -16,6 +16,7 @@ RevAgent v0.1.0 is an alpha, local-first computational-mathematics revision work
 - Local review-comment ingestion, LaTeX source locating, proof obligations, controlled experiment records, response traceability, and author cockpit.
 - Synthetic benchmark catalog generation and local shadow-benchmark registration.
 - Local contribution-package export with explicit confirmation, permission/deidentification declarations, and credential scanning.
+- Integrated alpha `revision-run`, `revision-consistency`, and `revision-apply` workflow from reviewer comments to guarded manuscript candidates and traceable rebuttal artifacts.
 
 ## Verification
 

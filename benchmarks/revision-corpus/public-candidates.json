@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "case_id": "peerj-cs-3022", "provider": "peerj", "domain": "scientific-ml",
+      "record_url": "https://peerj.com/articles/cs-3022/reviews/", "license": "CC-BY-4.0",
+      "license_url": "https://peerj.com/about/policies-and-procedures/#open-peer-review",
+      "expected_rounds": 1,
+      "artifacts": [
+        {"kind": "manuscript", "version": "v1", "url": "https://peerj.com/articles/cs-3022v0.1.pdf", "cache_file": "peerj-cs-3022-v1.pdf"},
+        {"kind": "manuscript", "version": "v2", "url": "https://peerj.com/articles/cs-3022v0.2.pdf", "cache_file": "peerj-cs-3022-v2.pdf"},
+        {"kind": "review_response", "version": "r1", "url": "https://peerj.com/articles/cs-3022/reviews/", "cache_file": "peerj-cs-3022-reviews.html"}
+      ]
+    },
+    {
+      "case_id": "peerj-cs-2044", "provider": "peerj", "domain": "scientific-ml",
+      "record_url": "https://peerj.com/articles/cs-2044/reviews/", "license": "CC-BY-4.0",
+      "license_url": "https://peerj.com/about/policies-and-procedures/#open-peer-review", "expected_rounds": 1,
+      "artifacts": [
+        {"kind": "manuscript", "version": "v1", "url": "https://peerj.com/articles/cs-2044v0.1.pdf", "cache_file": "peerj-cs-2044-v1.pdf"},
+        {"kind": "manuscript", "version": "v2", "url": "https://peerj.com/articles/cs-2044v0.2.pdf", "cache_file": "peerj-cs-2044-v2.pdf"},
+        {"kind": "review_response", "version": "r1", "url": "https://peerj.com/articles/cs-2044/reviews/", "cache_file": "peerj-cs-2044-reviews.html"}
+      ]
+    },
+    {
+      "case_id": "peerj-cs-2873", "provider": "peerj", "domain": "scientific-ml",
+      "record_url": "https://peerj.com/articles/cs-2873/reviews/", "license": "CC-BY-4.0",
+      "license_url": "https://peerj.com/about/policies-and-procedures/#open-peer-review", "expected_rounds": 1,
+      "artifacts": [
+        {"kind": "manuscript", "version": "v1", "url": "https://peerj.com/articles/cs-2873v0.1.pdf", "cache_file": "peerj-cs-2873-v1.pdf"},
+        {"kind": "manuscript", "version": "v2", "url": "https://peerj.com/articles/cs-2873v0.2.pdf", "cache_file": "peerj-cs-2873-v2.pdf"},
+        {"kind": "review_response", "version": "r1", "url": "https://peerj.com/articles/cs-2873/reviews/", "cache_file": "peerj-cs-2873-reviews.html"}
+      ]
+    },
+    {
+      "case_id": "f1000-173252", "provider": "f1000research", "domain": "computational-math",
+      "record_url": "https://f1000research.com/articles/15-228", "license": "CC-BY-4.0",
+      "license_url": "https://f1000research.com/about/policies", "expected_rounds": 1,
+      "artifacts": [
+        {"kind": "manuscript", "version": "v1", "url": "https://f1000research.com/articles/15-228/v1", "cache_file": "f1000-173252-v1.html"},
+        {"kind": "manuscript", "version": "v2", "url": "https://f1000research.com/articles/15-228/v2", "cache_file": "f1000-173252-v2.html"},
+        {"kind": "review_response", "version": "r1", "url": "https://f1000research.com/articles/15-228/v2", "cache_file": "f1000-173252-reviews.html"}
+      ]
+    },
+    {
+      "case_id": "f1000-19455", "provider": "f1000research", "domain": "finite-element",
+      "record_url": "https://f1000research.com/articles/8-1020", "license": "CC-BY-4.0",
+      "license_url": "https://f1000research.com/about/policies", "expected_rounds": 1,
+      "artifacts": [
+        {"kind": "manuscript", "version": "v1", "url": "https://f1000research.com/articles/8-1020/v1", "cache_file": "f1000-19455-v1.pdf"},
+        {"kind": "manuscript", "version": "v2", "url": "https://f1000research.com/articles/8-1020/v2", "cache_file": "f1000-19455-v2.pdf"},
+        {"kind": "review_response", "version": "r1", "url": "https://f1000research.com/articles/8-1020", "cache_file": "f1000-19455-reviews.html"}
+      ]
+    },
+    {
+      "case_id": "f1000-73061", "provider": "f1000research", "domain": "finite-element",
+      "record_url": "https://f1000research.com/articles/10-1017", "license": "CC-BY-4.0",
+      "license_url": "https://f1000research.com/about/policies", "expected_rounds": 1,
+      "artifacts": [
+        {"kind": "manuscript", "version": "v1", "url": "https://f1000research.com/articles/10-1017/v1", "cache_file": "f1000-73061-v1.pdf"},
+        {"kind": "manuscript", "version": "v2", "url": "https://f1000research.com/articles/10-1017/v2", "cache_file": "f1000-73061-v2.pdf"},
+        {"kind": "review_response", "version": "r1", "url": "https://f1000research.com/articles/10-1017", "cache_file": "f1000-73061-reviews.html"}
+      ]
+    },
+    {
+      "case_id": "elife-94391", "provider": "elife", "domain": "computational-science",
+      "record_url": "https://elifesciences.org/articles/94391/peer-reviews", "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/", "expected_rounds": 1,
+      "artifacts": [
+        {"kind": "manuscript", "version": "v1", "url": "https://elifesciences.org/reviewed-preprints/94391v1.pdf", "cache_file": "elife-94391-v1.pdf"},
+        {"kind": "manuscript", "version": "v2", "url": "https://elifesciences.org/reviewed-preprints/94391v2.pdf", "cache_file": "elife-94391-v2.pdf"},
+        {"kind": "review_response", "version": "r1", "url": "https://elifesciences.org/articles/94391/peer-reviews", "cache_file": "elife-94391.html"}
+      ]
+    },
+    {
+      "case_id": "elife-98468", "provider": "elife", "domain": "applied-mathematics",
+      "record_url": "https://elifesciences.org/reviewed-preprints/98468/reviews", "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/", "expected_rounds": 2,
+      "artifacts": [
+        {"kind": "manuscript", "version": "v1", "url": "https://elifesciences.org/reviewed-preprints/98468v1.pdf", "cache_file": "elife-98468-v1.pdf"},
+        {"kind": "manuscript", "version": "v2", "url": "https://elifesciences.org/reviewed-preprints/98468v2.pdf", "cache_file": "elife-98468-v2.pdf"},
+        {"kind": "manuscript", "version": "v3", "url": "https://elifesciences.org/reviewed-preprints/98468v3.pdf", "cache_file": "elife-98468-v3.pdf"},
+        {"kind": "review_response", "version": "r1-r2", "url": "https://elifesciences.org/reviewed-preprints/98468/reviews", "cache_file": "elife-98468.html"}
+      ]
+    },
+    {
+      "case_id": "elife-107070", "provider": "elife", "domain": "scientific-ml",
+      "record_url": "https://elifesciences.org/reviewed-preprints/107070v2/reviews", "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/", "expected_rounds": 1,
+      "artifacts": [
+        {"kind": "manuscript", "version": "v1", "url": "https://elifesciences.org/reviewed-preprints/107070v1.pdf", "cache_file": "elife-107070-v1.pdf"},
+        {"kind": "manuscript", "version": "v2", "url": "https://elifesciences.org/reviewed-preprints/107070v2.pdf", "cache_file": "elife-107070-v2.pdf"},
+        {"kind": "review_response", "version": "r1", "url": "https://elifesciences.org/reviewed-preprints/107070v2/reviews", "cache_file": "elife-107070.html"}
+      ]
+    },
+    {
+      "case_id": "elife-106073", "provider": "elife", "domain": "computational-science",
+      "record_url": "https://elifesciences.org/reviewed-preprints/106073v3/reviews", "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/", "expected_rounds": 2,
+      "artifacts": [
+        {"kind": "manuscript", "version": "v1", "url": "https://elifesciences.org/reviewed-preprints/106073v1.pdf", "cache_file": "elife-106073-v1.pdf"},
+        {"kind": "manuscript", "version": "v2", "url": "https://elifesciences.org/reviewed-preprints/106073v2.pdf", "cache_file": "elife-106073-v2.pdf"},
+        {"kind": "manuscript", "version": "v3", "url": "https://elifesciences.org/reviewed-preprints/106073v3.pdf", "cache_file": "elife-106073-v3.pdf"},
+        {"kind": "review_response", "version": "r1-r2", "url": "https://elifesciences.org/reviewed-preprints/106073/reviews", "cache_file": "elife-106073.html"}
+      ]
+    },
+    {
+      "case_id": "elife-105948", "provider": "elife", "domain": "computational-science",
+      "record_url": "https://elifesciences.org/reviewed-preprints/105948/reviews", "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/", "expected_rounds": 1,
+      "artifacts": [
+        {"kind": "manuscript", "version": "v1", "url": "https://elifesciences.org/reviewed-preprints/105948v1.pdf", "cache_file": "elife-105948-v1.pdf"},
+        {"kind": "manuscript", "version": "v2", "url": "https://elifesciences.org/reviewed-preprints/105948v2.pdf", "cache_file": "elife-105948-v2.pdf"},
+        {"kind": "review_response", "version": "r1", "url": "https://elifesciences.org/reviewed-preprints/105948/reviews", "cache_file": "elife-105948.html"}
+      ]
+    }
+  ]
+}

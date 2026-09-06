@@ -1,0 +1,37 @@
+{
+  "method_note": "Independent coding of methodological and reporting concerns using only verbatim excerpts from the frozen public reviews.",
+  "findings": [
+    {
+      "finding_id": "A-19455-01",
+      "role": "experiment-reviewer",
+      "category": "methods_reproducibility",
+      "high_risk": true,
+      "review_id": "10.5256/f1000research.21329.r50923",
+      "evidence_excerpt": "There are no details. What type of tests or analysis did you perform?"
+    },
+    {
+      "finding_id": "A-19455-02",
+      "role": "theory-reviewer",
+      "category": "model_construction",
+      "high_risk": true,
+      "review_id": "10.5256/f1000research.21329.r50923",
+      "evidence_excerpt": "The model designing step needs more description especially the role of CBCT and the correlation with the 3D scanning."
+    },
+    {
+      "finding_id": "A-19455-03",
+      "role": "experiment-reviewer",
+      "category": "test_configuration",
+      "high_risk": true,
+      "review_id": "10.5256/f1000research.21329.r57384",
+      "evidence_excerpt": "Please discuss the ball-contact points and localization in the test configuration that would affect the force distribution in the tooth."
+    },
+    {
+      "finding_id": "A-19455-04",
+      "role": "text-reviewer",
+      "category": "literature_context",
+      "high_risk": false,
+      "review_id": "10.5256/f1000research.21329.r57384",
+      "evidence_excerpt": "The manuscript needs more literature review in the introduction."
+    }
+  ]
+}

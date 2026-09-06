@@ -9,6 +9,16 @@ from .profiles import load_profile, validate_rulepack
 PLACEHOLDER_MARKERS = ("AUTHOR MUST PROVIDE", "[TODO", "[INSERT", "TBD")
 FUTURE_COMMITMENT = re.compile(r"\b(?:we|the authors?)\s+(?:will|plan to|intend to|shall)\b|\bwill\s+(?:add|revise|perform|include|provide|correct)\b", re.I)
 DISCOURTEOUS = re.compile(r"\b(?:the reviewer is wrong|obviously the reviewer|the reviewer clearly misunderstood|nonsense|ridiculous)\b", re.I)
+LIST_PREFIX = re.compile(r"^\s*(?:\(?[a-zA-Z0-9]+[.)]|[-*])\s+")
+REQUEST_BOUNDARY = re.compile(r"(?<=[.!?])\s+(?=(?:Please|Could|Would|Clarify|Explain|Provide|Add|Report|Address|Why|How)\b)", re.I)
+
+
+def _atomize(comment: str) -> list[str]:
+    parts = []
+    for line in comment.splitlines() or [comment]:
+        cleaned = LIST_PREFIX.sub("", line).strip()
+        parts.extend(part.strip() for part in REQUEST_BOUNDARY.split(cleaned) if part.strip())
+    return parts or [comment]
 
 
 def _words(text: str) -> int:
@@ -42,8 +52,15 @@ def _render_stress_test(report: dict) -> str:
 def parse_rebuttal(base) -> dict:
     config = load_config(base)
     items = read_json(config.workspace / "review_items.json", [])
-    threads = {str(item["id"]): {"thread_id": f"RB-{item['id']}", "reviewer": item.get("reviewer", "reviewer"), "request": item.get("comment", ""), "atoms": [{"atom_id": f"RB-{item['id']}-1", "request": item.get("comment", ""), "status": "unplanned", "manuscript_evidence": [], "author_approval": "required"}]} for item in items}
-    result = {"version": 1, "generated_at": now_iso(), "threads": threads}
+    threads = {}
+    for item in items:
+        comment = str(item.get("comment", "")).strip()
+        parts = _atomize(comment)
+        atoms = [{"atom_id": f"RB-{item['id']}-{number}", "request": part, "source_item_id": str(item["id"]),
+                  "source_comment": comment, "status": "unplanned", "manuscript_evidence": [], "author_approval": "required"}
+                 for number, part in enumerate(parts, 1)]
+        threads[str(item["id"])] = {"thread_id": f"RB-{item['id']}", "reviewer": item.get("reviewer", "reviewer"), "request": comment, "atoms": atoms}
+    result = {"version": 2, "generated_at": now_iso(), "threads": threads}
     write_json(config.workspace / "rebuttal_threads.json", result)
     write_text(config.workspace / "rebuttal_threads.md", "# Rebuttal Threads\n\n" + "\n".join(f"- `{thread['thread_id']}`: {thread['request']}" for thread in threads.values()) + "\n")
     return result
@@ -78,6 +95,14 @@ def rebuttal_draft(base) -> str:
     draft = _render_rebuttal_draft(result)
     write_json(config.workspace / "rebuttal_threads.json", result)
     write_text(config.workspace / "rebuttal_draft.md", draft)
+    structured = {"version": 1, "generated_at": now_iso(), "status": "author_review_required",
+                  "atoms": [{key: atom.get(key, "") for key in ("atom_id", "source_item_id", "request", "response_text", "manuscript_locator", "evidence", "status", "author_approval")}
+                            for thread in result.get("threads", {}).values() for atom in thread.get("atoms", [])],
+                  "limitations": ["Responses remain author-gated and are not fact-verified by this export."]}
+    write_json(config.workspace / "rebuttal_draft.json", structured)
+    paste_ready = "\n\n".join(str(atom.get("response_text", "")).strip() or "[AUTHOR MUST PROVIDE VERIFIED RESPONSE]"
+                               for thread in result.get("threads", {}).values() for atom in thread.get("atoms", [])) + "\n"
+    write_text(config.workspace / "rebuttal_paste_ready.txt", paste_ready)
     return draft
 
 
@@ -141,7 +166,7 @@ def approve_rebuttal_atom(base, atom_id: str, note: str, manuscript_locator: str
                     raise ValueError("approval requires response text or a substantive approval note")
                 atom.update({"status": "approved", "author_approval": "approved", "approval_note": note, "response_text": response, "manuscript_locator": manuscript_locator, "evidence": evidence, "approved_at": now_iso()})
                 write_json(config.workspace / "rebuttal_threads.json", payload)
-                write_text(config.workspace / "rebuttal_draft.md", _render_rebuttal_draft(payload))
+                rebuttal_draft(base)
                 write_json(config.workspace / "rebuttal_final.json", {"version": 2, "status": "invalidated_by_atom_update", "invalidated_at": now_iso()})
                 return atom
     raise ValueError(f"unknown rebuttal atom {atom_id}")

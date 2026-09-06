@@ -1,96 +1,129 @@
+<div align="center">
+
 # RevAgent
 
-<p align="center"><strong>本地优先 · 可审计 · 人工签核</strong></p>
+### 从审稿意见到已验证修改与一致性 Rebuttal
 
-<p align="center"><a href="README.md">English</a> · <a href="#快速开始">快速开始</a> · <a href="docs/advanced-usage.md">高级用法</a> · <a href="SECURITY.md">安全政策</a></p>
+**本地优先 · 证据可追踪 · 人工签核**
 
-RevAgent 是一个面向计算数学论文返修的本地优先、可审计助手。它把编辑和审稿意见转化为可追踪的审稿事项、源码位置、返修计划、证据记录、回复草稿和明确的作者决策。
+[English](README.md) · [快速开始](#快速开始) · [自动化闭环](#返修自动化闭环) · [真实案例评测](#真实案例评测) · [安全策略](SECURITY.md)
 
-> [!NOTE]
-> 适用于 *SISC*、*SINUM*、*Mathematics of Computation*、*IMA Journal of Numerical Analysis*、*Journal of Computational Physics* 和 *Numerische Mathematik* 等期刊中常见的返修工作流。这些仅是代表性使用场景，不代表期刊认可或投稿保证。
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Status](https://img.shields.io/badge/status-alpha-orange)
+![Tests](https://img.shields.io/badge/tests-186%20passing-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Privacy](https://img.shields.io/badge/data-local--first-6f42c1)
 
-<p align="center"><img src="docs/assets/revagent-workflow.png" alt="RevAgent 工作流：审稿意见经过可审计的返修图谱、证据检查、本地保护与人工签核。" width="1200"></p>
+</div>
 
-<p align="center"><em>审稿意见 → 返修图谱 → 证据 → 人工审阅 → 回复包</em></p>
+> 将 LaTeX 稿件和审稿意见交给 RevAgent。它会把每条意见拆成可追踪任务，提出受控修改，核对回复中的陈述是否真的落实到稿件，并生成供作者签核的逐条 rebuttal。
 
-## 一览
+RevAgent 聚焦科研工作者真正耗时的返修阶段，而不是再生成一份泛泛的模拟审稿意见。当前首先面向计算数学及相邻计算科学领域。
 
-| 材料 | 支持方式 |
+## 为什么需要 RevAgent？
+
+返修的核心是保持四类信息一致：
+
+```text
+审稿要求  ↔  作者决策  ↔  稿件修改  ↔  rebuttal 陈述
+```
+
+RevAgent 显式维护这些关系，减少漏回意见、无证据地声称“已经增加”、修改未写入正文以及回复与最终稿不一致等问题。
+
+## 返修自动化闭环
+
+```mermaid
+flowchart LR
+    A[审稿意见] --> B[原子化请求]
+    B --> C[LaTeX 定位与证据义务]
+    C --> D[候选修改与验证任务]
+    D --> E{作者签核}
+    E -->|批准| F[备份后应用修改]
+    E -->|退回| D
+    F --> G[Diff 与证据核验]
+    G --> H[逐条 Rebuttal]
+    H --> I[一致性与提交就绪门]
+```
+
+### 自动化体现在哪里？
+
+| 层级 | 职责 |
 | --- | --- |
-| 稿件 | 完整 LaTeX 源码树。RevAgent 可索引标签、定理类环境、引用和源码位置；v0.1 的候选修改与编译检查仅支持 LaTeX。 |
-| 审稿意见 | **优先：** `.tex` 或 `.md`，直接解析；`.txt` 也可直接解析；`.docx` 和文本型 `.pdf` 会先在本地转换为可审计的 Markdown 副本，再进行解析。 |
-| 编码 Agent | 任意编码 Agent 都可协助部署 RevAgent 并执行本地工作流；可选的外部自动化命令（`revagent run` 与 Codex review worker）目前需要 Codex CLI。 |
+| LLM 语义层 | 理解审稿意见、拆分请求、判断相关章节、提出修改和起草回复。 |
+| 确定性验证层 | 输入哈希、源码定位、版本 diff、schema 校验、覆盖率、来源与证据核对。 |
+| 人工签核层 | 作者或领域专家批准科学结论、证明、实验、最终修改和投稿。 |
 
-所有材料均保留在本地。转换后的审稿意见副本、原文件哈希和转换记录均写入 `.revagent/`；原文件不会被修改或上传。
-
-> [!TIP]
-> 为获得最清晰的事项边界和源码定位，建议将审稿意见保存为 TeX 或 Markdown。
+LLM 负责理解和提出方案；程序负责追踪、验证和阻断；科学正确性仍由作者或专家负责。
 
 ## 快速开始
 
-### 1. 安装
-
-在任意具备 Python 3.10+ 的本地终端中运行；也可以使用 Codex、Claude Code 或其他编码 Agent 提供的终端：
-
-```powershell
+```bash
 git clone https://github.com/chenyongssss/revagent.git
 cd revagent
 python -m venv .venv
-& .\.venv\Scripts\Activate.ps1
-python -m pip install -e .[dev]
+python -m pip install -e .
 ```
 
-macOS 或 Linux 请使用 `source .venv/bin/activate` 激活环境。
+准备 `manuscript/` LaTeX 源码树和审稿意见后运行：
 
-**使用编码 Agent：** Codex、Claude Code 或其他本地编码 Agent 都可以打开克隆后的 `revagent` 文件夹，并代你执行上述安装命令。完成后，标准本地工作流不需要 Agent 环境。例外是可选的 `revagent run` 和 Codex review-worker 自动化功能：它们目前需要安装 Codex CLI。
-
-### 2. 准备一个返修工作区
-
-请从稿件的副本开始：
-
-```text
-my-paper-review/
-  manuscript/
-    paper.tex
-    sections/
-    bibliography.bib
-  reviewer_comments.tex   # 也可为 .md、.txt、.docx、.pdf
-```
-
-将完整 LaTeX 源码树放入 `manuscript/`，包括被 `\input` 或 `\include` 引用的文件。推荐使用 TeX 或 Markdown 审稿意见，因为系统可直接保留其事项边界和行号位置。
-
-### 3. 第一次运行
-
-进入 `my-paper-review/` 后执行：
-
-```powershell
+```bash
 revagent init --journal siam --tex-root manuscript --main-tex paper.tex
-revagent ingest-comments reviewer_comments.tex
-revagent plan
-revagent draft
+revagent revision-run --comments reviewer_comments.tex
+revagent revision-consistency
+```
+
+审阅并批准候选修改后：
+
+```bash
+revagent revision-apply
 revagent cockpit --lang zh
 revagent validate
 ```
 
-- `init`：创建 `.revagent/` 并指定主稿入口。
-- `ingest-comments`：导入编辑和审稿请求；DOCX/PDF 导入还会生成本地标准化 Markdown 记录。
-- `plan`：将请求关联到 LaTeX 位置，并记录返修或证据义务；不会修改稿件。
-- `draft`：生成可审阅的回复和候选修改工件；不会应用修改。
-- `cockpit --lang zh`：生成中文本地总览；使用 `--lang en` 可生成英文版。
-- `validate`：检查工作区状态、溯源和追踪关系；只有在明确需要检查 LaTeX 编译时才添加 `--compile`。
+RevAgent 不会静默应用未经批准的修改。`ready_for_author_submission` 仅表示本地工作流门通过，不代表期刊决定或科学认证。
 
-**结果：** 在 `.revagent/` 查看生成的本地记录；准备逐项审阅时，可使用 cockpit 或高级命令。
+## 关键产物
 
-## 安全边界
+```text
+.revagent/
+├── review_comment_atoms.json   # 原子化审稿请求
+├── revision_tasks.json         # 返修任务
+├── candidate_edits.json        # 待审阅修改候选
+├── response_trace.json         # 意见→修改→证据→回复
+├── revision_consistency.json   # 跨工件一致性
+├── rebuttal_draft.md           # 逐条回复草稿
+└── revision_readiness.json     # 阻断项与就绪状态
+```
+
+## 真实案例评测
+
+| 证据类型 | 数量 | 状态 |
+| --- | ---: | --- |
+| 私有计算数学返修历史 | 3 | 版本链完整；仅公开脱敏元数据与聚合哈希 |
+| eLife 公开返修历史 | 5 | 稿件版本、审稿与作者回复链完整 |
+| F1000 公开记录 | 3 | 历史 review-only 代理标注案例 |
+
+8 个公开代理案例包含 23 个裁决 finding，证据摘录覆盖率和来源完整性均为 100%。这些属于代理标注的银标准指标，不是真人专家准确率。
+
+参见[公开评测包](benchmarks/release-v0.1/README.md)、[数据治理说明](docs/community-contributions.md)和[发布说明](RELEASE_NOTES.md)。
+
+## 当前边界
 
 > [!IMPORTANT]
-> RevAgent 不会认证证明、稳定性、收敛性、实验、回复事实或最终 PDF；这些决定必须由作者或子领域专家签核。候选修改必须先供人工审阅，绝不会被静默应用。
+> RevAgent 当前是供作者监督使用的 alpha 工具。它不能认证证明、收敛性、稳定性、实验、创新性、回复事实或最终 PDF，也不会自主操作投稿系统。真人专家校准完成前，应在 supervised/shadow 模式使用。
 
-## 更多内容
+私有论文材料始终保留在本地。`Cases/`、`.revagent/`、缓存、凭据和工作产物不会进入发布包。
 
-- [完整使用指南](docs/user-guide.zh-CN.md)：完整工作流、生成工件、单项审阅、验证和交接。
-- [Dashboard 指南](docs/dashboard.md)：静态 cockpit、本地浏览器服务、端点和生命周期。
-- [社区贡献](docs/community-contributions.md)：如何在不意外暴露材料的前提下准备可公开分享的案例。
-- [高级用法](docs/advanced-usage.md)：紧凑命令参考、开发和发布验证。
-- [安全政策](SECURITY.md)：隐私与执行边界。
-- [贡献指南](CONTRIBUTING.md) 和 [发布说明](RELEASE_NOTES.md)：项目协作与版本限制。
+## 文档
+
+- [完整使用指南](docs/user-guide.zh-CN.md)
+- [高级用法](docs/advanced-usage.md)
+- [Dashboard](docs/dashboard.md)
+- [预审与返修检查](docs/pre-submission-review.md)
+- [社区贡献与公开记录](docs/community-contributions.md)
+- [安全策略](SECURITY.md)
+- [贡献指南](CONTRIBUTING.md)
+
+## 许可证
+
+代码采用 [MIT License](LICENSE)。公开评测记录保留原始来源、署名和逐条许可信息。

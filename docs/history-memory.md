@@ -36,6 +36,13 @@ and a date. Fixture text must already be deidentified and authorized. Reports
 measure Recall@5, Precision@5, MRR, and zero-hit rate; they are not release or
 semantic-quality calibration.
 
+Retention is enforced automatically before import, redaction, approval, index
+rebuild, search, and export entrypoints. The public paper-to-review evaluator
+`run_public_review_retrieval_suite` uses the same deterministic FTS5/BM25 engine
+against licensed review text. Every paper and review payload is SHA-256 bound;
+labels must record two isolated agents plus a distinct adjudicator and remain
+explicitly `not_expert_calibrated`.
+
 Real-case intake and publication are separate, fail-closed steps:
 
 ```powershell

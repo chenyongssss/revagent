@@ -33,6 +33,73 @@ SYNTHETIC_DEFECTS = ("incorrect_assumption", "pseudo_citation", "missing_seed", 
 REVIEW_BENCHMARK_VERSION = 1
 ALIGNMENT_BENCHMARK_VERSION = 1
 HISTORY_BENCHMARK_VERSION = 1
+PUBLIC_REVIEW_RETRIEVAL_VERSION = 1
+
+def _validated_public_review_retrieval_labels(case_dir: Path) -> dict[str, object]:
+    labels = read_json(case_dir / "labels.json", {})
+    required = {"version", "fixture_id", "paper", "reviews", "relevant_review_ids", "label_provenance"}
+    if not isinstance(labels, dict) or set(labels) != required or labels.get("version") != PUBLIC_REVIEW_RETRIEVAL_VERSION:
+        raise ValueError(f"{case_dir.name}: labels.json must contain exactly the public-review retrieval v1 fields")
+    if not isinstance(labels.get("fixture_id"), str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", labels["fixture_id"]):
+        raise ValueError(f"{case_dir.name}: fixture_id must be a lowercase stable identifier")
+    paper = labels.get("paper")
+    if not isinstance(paper, dict) or set(paper) != {"title", "abstract", "source_url", "sha256"} or not all(isinstance(v, str) and v.strip() for v in paper.values()):
+        raise ValueError(f"{case_dir.name}: paper requires title, abstract, source_url, and sha256")
+    expected_hash = hashlib.sha256((paper["title"] + "\n" + paper["abstract"]).encode()).hexdigest()
+    if paper["sha256"] != expected_hash:
+        raise ValueError(f"{case_dir.name}: paper sha256 does not match title and abstract")
+    reviews = labels.get("reviews")
+    fields = {"review_id", "text", "source_url", "license", "sha256"}
+    if not isinstance(reviews, list) or not reviews or any(not isinstance(row, dict) or set(row) != fields or not all(isinstance(v, str) and v.strip() for v in row.values()) for row in reviews):
+        raise ValueError(f"{case_dir.name}: reviews require public text, source, license, and hash provenance")
+    if any(row["sha256"] != hashlib.sha256(row["text"].encode()).hexdigest() for row in reviews):
+        raise ValueError(f"{case_dir.name}: review sha256 does not match text")
+    ids = [row["review_id"] for row in reviews]
+    relevant = labels.get("relevant_review_ids")
+    if len(set(ids)) != len(ids) or not isinstance(relevant, list) or not relevant or not set(relevant) <= set(ids):
+        raise ValueError(f"{case_dir.name}: relevant_review_ids must be a non-empty subset of unique reviews")
+    provenance = labels.get("label_provenance")
+    agents = provenance.get("agents", []) if isinstance(provenance, dict) else []
+    if not isinstance(provenance, dict) or provenance.get("status") != "adjudicated" or provenance.get("calibration") != "not_expert_calibrated":
+        raise ValueError(f"{case_dir.name}: labels require adjudicated non-expert calibration provenance")
+    if not isinstance(agents, list) or len(set(agents)) < 3 or provenance.get("adjudicator") not in agents:
+        raise ValueError(f"{case_dir.name}: labels require two agents and a distinct adjudicator")
+    return labels
+
+def run_public_review_retrieval_suite(base: Path, suite: Path) -> dict[str, object]:
+    """Evaluate paper-to-review retrieval on hashed, licensed public records."""
+    if not suite.is_dir():
+        raise ValueError("public-review retrieval suite must be a directory")
+    case_dirs = sorted(path for path in suite.iterdir() if path.is_dir() and (path / "labels.json").is_file())
+    if not case_dirs:
+        raise ValueError("public-review retrieval suite contains no labelled cases")
+    cases, fixture_ids = [], set()
+    for case_dir in case_dirs:
+        labels = _validated_public_review_retrieval_labels(case_dir)
+        if labels["fixture_id"] in fixture_ids:
+            raise ValueError(f"duplicate public-review retrieval fixture_id {labels['fixture_id']}")
+        fixture_ids.add(labels["fixture_id"])
+        corpus = [{"history_id": row["review_id"], "purpose": "public_peer_review", "content": row["text"]} for row in labels["reviews"]]
+        query_terms = re.findall(r"[A-Za-z0-9]+", labels["paper"]["title"] + " " + labels["paper"]["abstract"])
+        retrieved = _rank_history_fixture(" OR ".join(dict.fromkeys(query_terms)), corpus)
+        relevant = set(labels["relevant_review_ids"]); hits = [item for item in retrieved if item in relevant]
+        first_rank = next((index for index, item in enumerate(retrieved, 1) if item in relevant), 0)
+        cases.append({"fixture_id": labels["fixture_id"], "retrieved_review_ids": retrieved,
+                      "relevant_review_ids": sorted(relevant), "recall_at_5": len(hits) / len(relevant),
+                      "reciprocal_rank": 1 / first_rank if first_rank else 0.0,
+                      "paper_sha256": labels["paper"]["sha256"], "review_sha256s": {r["review_id"]: r["sha256"] for r in labels["reviews"]},
+                      "label_provenance": labels["label_provenance"]})
+    count = len(cases)
+    metrics = {"case_count": count, "recall_at_5": sum(row["recall_at_5"] for row in cases) / count,
+               "mean_reciprocal_rank": sum(row["reciprocal_rank"] for row in cases) / count,
+               "zero_hit_rate": sum(row["reciprocal_rank"] == 0 for row in cases) / count}
+    report = {"version": 1, "generated_at": now_iso(), "engine": {"kind": "sqlite-fts5-bm25", "model": "none"},
+              "metrics": metrics, "cases": cases, "status": "public_record_agent_adjudicated_not_expert_calibrated",
+              "limitations": ["Public peer-review labels are agent-adjudicated proxies, not domain-expert calibration.", "Retrieval overlap does not establish review correctness."]}
+    ws = load_config(base).workspace
+    write_json(ws / "public_review_retrieval_report.json", report)
+    write_text(ws / "public_review_retrieval_report.md", "\n".join(["# Public Paper-to-Review Retrieval Benchmark", "", f"- Cases: {count}", f"- Recall@5: {metrics['recall_at_5']:.3f}", f"- MRR: {metrics['mean_reciprocal_rank']:.3f}", f"- Status: `{report['status']}`", "", "This is a public-record proxy benchmark, not expert calibration.", ""]))
+    return report
 
 def _validated_history_labels(case_dir: Path) -> dict[str, object]:
     labels = read_json(case_dir / "labels.json", {})

@@ -1,0 +1,46 @@
+{
+  "schema": "revagent.private-case-metadata/v1",
+  "case_count": 3,
+  "privacy_note": "No manuscript, review, response, title, author, journal identifier, or local path is included.",
+  "cases": [
+    {
+      "case_id": "case-1",
+      "domain": "computational_mathematics",
+      "visibility": "private_metadata_only",
+      "expected_rounds": 1,
+      "available_manuscript_transitions": 1,
+      "round_chain_complete": true,
+      "final_state_verifiable": true,
+      "outcome": "accepted_user_asserted",
+      "aggregate_sha256": "2097a32e337dc06b499b5505733d2a442150d03a746ed309529c78aed71fef03",
+      "raw_content_in_release": false,
+      "expert_calibrated": false
+    },
+    {
+      "case_id": "case-2",
+      "domain": "computational_mathematics",
+      "visibility": "private_metadata_only",
+      "expected_rounds": 2,
+      "available_manuscript_transitions": 2,
+      "round_chain_complete": true,
+      "final_state_verifiable": true,
+      "outcome": "accepted_user_asserted",
+      "aggregate_sha256": "efefdd61ad8480f411633421660dd5315bd26ca28053d32457317a2eb5ef47ef",
+      "raw_content_in_release": false,
+      "expert_calibrated": false
+    },
+    {
+      "case_id": "case-3",
+      "domain": "computational_mathematics",
+      "visibility": "private_metadata_only",
+      "expected_rounds": 2,
+      "available_manuscript_transitions": 2,
+      "round_chain_complete": true,
+      "final_state_verifiable": true,
+      "outcome": "accepted_user_asserted",
+      "aggregate_sha256": "4614b91914b3bb12e556d3119c025f04554a1e11f9eb115e9543bc30d184ef0a",
+      "raw_content_in_release": false,
+      "expert_calibrated": false
+    }
+  ]
+}

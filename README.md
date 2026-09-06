@@ -1,96 +1,133 @@
+<div align="center">
+
 # RevAgent
 
-<p align="center"><strong>Local-first · Auditable · Human-gated</strong></p>
+### From reviewer comments to verified revisions and a consistent rebuttal
 
-<p align="center"><a href="README.zh-CN.md">简体中文</a> · <a href="#quick-start">Quick start</a> · <a href="docs/advanced-usage.md">Advanced usage</a> · <a href="SECURITY.md">Security</a></p>
+**Local-first · Evidence-traced · Human-gated**
 
-RevAgent is a local-first, auditable revision assistant for computational-mathematics manuscripts. It turns editor and reviewer feedback into tracked review items, source locations, revision plans, evidence records, response drafts, and explicit author decisions.
+[简体中文](README.zh-CN.md) · [Quick Start](#quick-start) · [Workflow](#the-revision-loop) · [Evaluation](#evaluation) · [Security](SECURITY.md)
 
-> [!NOTE]
-> Designed for revision workflows common in *SISC*, *SINUM*, *Mathematics of Computation*, *IMA Journal of Numerical Analysis*, *Journal of Computational Physics*, and *Numerische Mathematik*. These are representative use cases, not endorsements or submission guarantees.
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Status](https://img.shields.io/badge/status-alpha-orange)
+![Tests](https://img.shields.io/badge/tests-186%20passing-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Privacy](https://img.shields.io/badge/data-local--first-6f42c1)
 
-<p align="center"><img src="docs/assets/revagent-workflow.png" alt="RevAgent workflow: reviewer feedback flows through an auditable revision graph, evidence checks, local protection, and human approval." width="1200"></p>
+</div>
 
-<p align="center"><em>Feedback → revision map → evidence → human review → response package</em></p>
+> Give RevAgent a LaTeX manuscript and reviewer comments. It turns every request into a traceable task, proposes guarded edits, checks that response claims match actual manuscript changes, and assembles a rebuttal for author approval.
 
-## At a glance
+RevAgent focuses on the revision stage of scientific publishing—not on producing another generic review. It is designed first for computational mathematics and adjacent computational sciences.
 
-| Material | Support |
+## Why RevAgent?
+
+A revision is a consistency problem across four moving parts:
+
+```text
+reviewer request  ↔  author decision  ↔  manuscript change  ↔  rebuttal claim
+```
+
+RevAgent keeps those links explicit. It helps prevent missed comments, unsupported “we added” statements, edits without evidence, and rebuttal text that no longer matches the final manuscript.
+
+## The revision loop
+
+```mermaid
+flowchart LR
+    A[Reviewer comments] --> B[Atomic requests]
+    B --> C[LaTeX locations and obligations]
+    C --> D[Candidate edits and evidence tasks]
+    D --> E{Author approval}
+    E -->|approved| F[Apply with backup]
+    E -->|revise/reject| D
+    F --> G[Diff and evidence verification]
+    G --> H[Point-by-point rebuttal]
+    H --> I[Consistency and readiness gates]
+```
+
+### What is automated?
+
+| Layer | RevAgent does |
 | --- | --- |
-| Manuscript | A complete LaTeX source tree. RevAgent can index labels, theorem-like environments, references, and source locations; candidate edits and compilation checks are LaTeX-only in v0.1. |
-| Reviewer comments | **Preferred:** `.tex` or `.md`, parsed directly. `.txt` is also parsed directly. `.docx` and text-based `.pdf` are converted locally to an auditable Markdown copy before parsing. |
-| Coding agents | Any coding agent can help deploy RevAgent and run its local workflow. The optional external automation commands (`revagent run` and Codex review workers) currently require the Codex CLI. |
+| Semantic | Uses an optional LLM to interpret comments, classify requests, locate relevant passages, propose edits, and draft responses. |
+| Deterministic | Hashes inputs, tracks source locations, computes diffs, validates schemas, checks coverage and provenance, and blocks unverified claims. |
+| Human gate | Requires the author or a domain expert to approve scientific claims, experiments, proofs, final edits, and submission. |
 
-All material stays local. A converted comment copy, its source hash, and its conversion record are written under `.revagent/`; the original file is never changed or uploaded.
-
-> [!TIP]
-> For the clearest item boundaries and source locations, use TeX or Markdown for reviewer comments.
+The LLM proposes; the evidence system verifies structure and provenance; the author remains accountable for scientific correctness.
 
 ## Quick start
 
-### 1. Install
-
-Use any local terminal with Python 3.10+, including the terminal provided by Codex, Claude Code, or another coding agent:
-
-```powershell
+```bash
 git clone https://github.com/chenyongssss/revagent.git
 cd revagent
 python -m venv .venv
-& .\.venv\Scripts\Activate.ps1
-python -m pip install -e .[dev]
+python -m pip install -e .
 ```
 
-On macOS or Linux, activate with `source .venv/bin/activate`.
+Activate with `.venv\Scripts\Activate.ps1` on Windows or `source .venv/bin/activate` on macOS/Linux.
 
-**Using a coding agent:** Codex, Claude Code, or another local coding agent can open the cloned `revagent` folder and perform this installation for you. Afterward, the standard local workflow does not require an agent environment. The optional `revagent run` and Codex review-worker automation features are the current exception: they require the Codex CLI.
-
-### 2. Prepare one revision workspace
-
-Work from a copy of the manuscript:
-
-```text
-my-paper-review/
-  manuscript/
-    paper.tex
-    sections/
-    bibliography.bib
-  reviewer_comments.tex   # or .md, .txt, .docx, .pdf
-```
-
-Keep the full LaTeX source tree in `manuscript/`, including files referenced by `\input` or `\include`. TeX and Markdown reviewer files are recommended because their item boundaries and line locations are preserved directly.
-
-### 3. Run the first pass
-
-From `my-paper-review/`:
-
-```powershell
+```bash
 revagent init --journal siam --tex-root manuscript --main-tex paper.tex
-revagent ingest-comments reviewer_comments.tex
-revagent plan
-revagent draft
+revagent revision-run --comments reviewer_comments.tex
+revagent revision-consistency
+```
+
+Review and approve candidates, then:
+
+```bash
+revagent revision-apply
 revagent cockpit --lang en
 revagent validate
 ```
 
-- `init` creates `.revagent/` and identifies the manuscript entry point.
-- `ingest-comments` imports individual editor/reviewer requests; DOCX and PDF imports also create a local normalized Markdown record.
-- `plan` connects requests to LaTeX locations and records revision or evidence obligations without changing the manuscript.
-- `draft` prepares reviewable response and candidate-edit artifacts without applying them.
-- `cockpit --lang en` creates a local overview; use `--lang zh` for Chinese.
-- `validate` checks workspace state, provenance, and traceability. Add `--compile` only for an explicit LaTeX compilation check.
+RevAgent never silently applies an unapproved candidate. `ready_for_author_submission` means the local workflow gates passed; it is not a journal decision or scientific certification.
 
-**Result:** inspect the generated local records in `.revagent/`, then use the cockpit or the advanced commands when you are ready to review individual items.
+## What you get
+
+```text
+.revagent/
+├── review_comment_atoms.json   # normalized reviewer requests
+├── revision_tasks.json         # actionable revision plan
+├── candidate_edits.json        # reviewable edit candidates
+├── response_trace.json         # request → edit → evidence → response
+├── revision_consistency.json   # cross-artifact consistency checks
+├── rebuttal_draft.md           # point-by-point draft
+└── revision_readiness.json     # remaining blockers and readiness
+```
+
+## Evaluation
+
+| Evidence | Count | Status |
+| --- | ---: | --- |
+| Private computational-mathematics histories | 3 | Complete version chains; metadata and aggregate hashes only |
+| Public eLife histories | 5 | Complete manuscript-version + review/response chains |
+| Public F1000 records | 3 | Legacy review-only agent-coded cases |
+
+Across the eight public proxy cases, the current report contains 23 adjudicated findings with 100% evidence-excerpt coverage and 100% provenance completeness. These are agent-coded silver metrics—not human-expert accuracy estimates.
+
+See [the evaluation release](benchmarks/release-v0.1/README.md), [community data governance](docs/community-contributions.md), and [release notes](RELEASE_NOTES.md).
+
+## Journal and domain support
+
+RevAgent includes profiles and reviewer packs for workflows common to SISC, SINUM, *Mathematics of Computation*, IMA Journal of Numerical Analysis, Journal of Computational Physics, and *Numerische Mathematik*. Names indicate workflow targets, not endorsement by any journal.
 
 ## Safety boundary
 
 > [!IMPORTANT]
-> RevAgent never certifies proofs, stability, convergence, experiments, response facts, or a final PDF. Those decisions require author or domain-expert approval. Candidate edits are reviewable first and are never silently applied.
+> RevAgent is an alpha author-assistance system. It does not certify proofs, convergence, stability, experiments, novelty, response facts, or a final PDF. It does not autonomously submit manuscripts. Use it in supervised or shadow mode until independent human-expert calibration is complete.
 
-## More
+Private manuscript material stays local. `Cases/`, `.revagent/`, caches, credentials, and generated working artifacts are excluded from the release package.
 
-- [User guide](docs/user-guide.md): the complete practical workflow, artifacts, per-item review, validation, and hand-off.
-- [Dashboard guide](docs/dashboard.md): static cockpit files, local browser service, endpoints, and lifecycle.
-- [Community contributions](docs/community-contributions.md): how to prepare an openly shareable case without exposing material accidentally.
-- [Advanced usage](docs/advanced-usage.md): compact command reference, development, and release verification.
-- [Security](SECURITY.md): privacy and execution boundaries.
-- [Contributing](CONTRIBUTING.md) and [release notes](RELEASE_NOTES.md): project collaboration and version limitations.
+## Documentation
+
+- [User guide](docs/user-guide.md)
+- [Advanced usage](docs/advanced-usage.md)
+- [Dashboard](docs/dashboard.md)
+- [Pre-submission and revision checks](docs/pre-submission-review.md)
+- [Community contributions and public records](docs/community-contributions.md)
+- [Security policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
+
+## License
+
+Code is released under the [MIT License](LICENSE). Public evaluation records retain their source attribution and per-record license metadata.
