@@ -27,7 +27,7 @@ from .memory import build_revision_memory, render_revision_memory, write_revisio
 from .pre_submission_review import pre_submission_review_summary
 from .readiness import write_revision_readiness
 
-EXTERNAL_BACKENDS = {"codex"}
+EXTERNAL_BACKENDS = {"codex", "claude"}
 EXTERNAL_RUN_MARK_STATUSES = {"done", "failed", "canceled"}
 EXTERNAL_RUN_ARTIFACTS = {
     "prompt": "prompt_path",
@@ -343,10 +343,17 @@ def codex_command() -> str | None:
     return shutil.which("codex")
 
 
+def claude_command() -> str | None:
+    """Return the Claude Code CLI when it is available on PATH."""
+    return shutil.which("claude.cmd") if os.name == "nt" and shutil.which("claude.cmd") else shutil.which("claude")
+
+
+def backend_command(backend: str) -> str | None:
+    return {"codex": codex_command, "claude": claude_command}.get(backend, lambda: None)()
+
+
 def backend_available(backend: str) -> bool:
-    if backend == "codex":
-        return codex_command() is not None
-    return False
+    return backend_command(backend) is not None
 
 
 def safe_command_list() -> list[str]:
@@ -468,7 +475,7 @@ def run_external_agent(
     config = load_config(base)
     prompt = build_external_agent_prompt(base, goal=goal, limit=limit, dangerous_autonomy=dangerous_autonomy)
     prompt_path = write_external_agent_prompt(base, prompt)
-    command_path = codex_command() if backend == "codex" else None
+    command_path = backend_command(backend)
     record = {
         "run_id": now_iso(),
         "backend": backend,

@@ -22,6 +22,8 @@
 
 RevAgent 聚焦科研工作者真正耗时的返修阶段，而不是再生成一份泛泛的模拟审稿意见。当前首先面向计算数学及相邻计算科学领域。
 
+RevAgent 是独立运行的本地优先 Python CLI，并不依赖 Codex。确定性的返修、证据、diff、溯源和就绪检查可以单独运行；LLM 只是可选的草稿提供者。你可以直接使用 RevAgent，也可以让 Codex、Claude Code 等外部 coding agent 调用同一套 CLI，同时遵守人工签核门禁。
+
 ## 为什么需要 RevAgent？
 
 返修的核心是保持四类信息一致：
@@ -81,6 +83,17 @@ revagent revision-apply
 revagent cockpit --lang zh
 revagent validate
 ```
+
+### 可选：接入 Codex 或 Claude Code
+
+安装 RevAgent 后，可让偏好的 coding agent 执行系统生成的、可审阅的工作流提示：
+
+```bash
+revagent run --backend codex --goal "continue the revision workflow" --dry-run
+revagent run --backend claude --goal "continue the revision workflow" --dry-run
+```
+
+确认提示内容后再去掉 `--dry-run`。两种集成只是调用同一套 RevAgent 命令的适配器，不会绕过作者签核或确定性验证。其他工具也可以读取 `.revagent/prompts/` 下的提示文件，再调用 `revagent` CLI 完成集成。
 
 RevAgent 不会静默应用未经批准的修改。`ready_for_author_submission` 仅表示本地工作流门通过，不代表期刊决定或科学认证。
 

@@ -528,7 +528,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("dashboard", help="Write the static HTML agent dashboard.")
     external_run = sub.add_parser("run", help="Launch an external agent runner.")
     external_run.add_argument("--goal", default="", help="Goal prompt for the external agent.")
-    external_run.add_argument("--backend", default="codex", choices=["codex"], help="External agent backend.")
+    external_run.add_argument("--backend", default="codex", choices=["codex", "claude"], help="External agent CLI backend (both consume the same generated prompt).")
     external_run.add_argument("--dry-run", action="store_true", help="Write and print the prompt without launching the backend.")
     external_run.add_argument("--detach", action="store_true", help="Queue a launch script instead of running the backend immediately.")
     external_run.add_argument("--limit", type=int, default=None, help="Task limit hint included in the generated prompt.")

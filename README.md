@@ -22,6 +22,8 @@
 
 RevAgent focuses on the revision stage of scientific publishing—not on producing another generic review. It is designed first for computational mathematics and adjacent computational sciences.
 
+RevAgent is a standalone, local-first Python CLI. It does **not** require Codex: the deterministic revision, evidence, diff, provenance, and readiness checks run on their own. An LLM is optional and only supplies drafts. You can use RevAgent directly, or ask an external coding agent such as Codex or Claude Code to operate the CLI under the same human approval gates.
+
 ## Why RevAgent?
 
 A revision is a consistency problem across four moving parts:
@@ -81,6 +83,17 @@ revagent revision-apply
 revagent cockpit --lang en
 revagent validate
 ```
+
+### Use with Codex or Claude Code (optional)
+
+Install RevAgent once, then let your preferred coding agent run the generated, reviewable workflow prompt:
+
+```bash
+revagent run --backend codex --goal "continue the revision workflow" --dry-run
+revagent run --backend claude --goal "continue the revision workflow" --dry-run
+```
+
+Remove `--dry-run` only when you are ready for the selected CLI to execute. Both integrations are adapters around the same RevAgent commands; neither bypasses author approval or deterministic validation. Any other tool can integrate by reading the prompt emitted under `.revagent/prompts/` and invoking `revagent` commands.
 
 RevAgent never silently applies an unapproved candidate. `ready_for_author_submission` means the local workflow gates passed; it is not a journal decision or scientific certification.
 
