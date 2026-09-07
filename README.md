@@ -1,12 +1,12 @@
-<div align="center">
+﻿<div align="center">
 
 # RevAgent
 
 ### From reviewer comments to verified revisions and a consistent rebuttal
 
-**Local-first · Evidence-traced · Human-gated**
+**Local-first Â· Evidence-traced Â· Human-gated**
 
-[简体中文](README.zh-CN.md) · [Quick Start](#quick-start) · [Workflow](#the-revision-loop) · [Evaluation](#evaluation) · [Security](SECURITY.md)
+[ç®€ä½“ä¸­æ–‡](README.zh-CN.md) Â· [Quick Start](#quick-start) Â· [Workflow](#the-revision-loop) Â· [Evaluation](#evaluation) Â· [Security](SECURITY.md)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Status](https://img.shields.io/badge/status-alpha-orange)
@@ -20,7 +20,7 @@
 
 > Give RevAgent a LaTeX manuscript and reviewer comments. It turns every request into a traceable task, proposes guarded edits, checks that response claims match actual manuscript changes, and assembles a rebuttal for author approval.
 
-RevAgent focuses on the revision stage of scientific publishing—not on producing another generic review. It is designed first for computational mathematics and adjacent computational sciences.
+RevAgent focuses on the revision stage of scientific publishingâ€”not on producing another generic review. It is designed first for computational mathematics and adjacent computational sciences.
 
 RevAgent is a standalone, local-first Python CLI. It does **not** require Codex: the deterministic revision, evidence, diff, provenance, and readiness checks run on their own. An LLM is optional and only supplies drafts. You can use RevAgent directly, or ask an external coding agent such as Codex or Claude Code to operate the CLI under the same human approval gates.
 
@@ -29,10 +29,10 @@ RevAgent is a standalone, local-first Python CLI. It does **not** require Codex:
 A revision is a consistency problem across four moving parts:
 
 ```text
-reviewer request  ↔  author decision  ↔  manuscript change  ↔  rebuttal claim
+reviewer request  â†”  author decision  â†”  manuscript change  â†”  rebuttal claim
 ```
 
-RevAgent keeps those links explicit. It helps prevent missed comments, unsupported “we added” statements, edits without evidence, and rebuttal text that no longer matches the final manuscript.
+RevAgent keeps those links explicit. It helps prevent missed comments, unsupported â€œwe addedâ€ statements, edits without evidence, and rebuttal text that no longer matches the final manuscript.
 
 ## The revision loop
 
@@ -84,7 +84,9 @@ revagent cockpit --lang en
 revagent validate
 ```
 
-### Use with Codex or Claude Code (optional)
+### Use with Codex or Claude Code
+
+Open this repository in Codex or Claude Code and paste: Read .revagent/agent_report.md and plan.md. Run safe RevAgent commands; propose candidate edits and point-by-point responses, but never approve or apply edits. Start `codex` or `claude`, then run `revagent agent-status`, `revagent review-analysis R001`, and `revagent propose`. The coding agent drafts; RevAgent binds LaTeX anchors, evidence, hashes, and provenance. The author reviews with `revagent inspect C001`, then explicitly runs `revagent approve C001` and `revagent revision-apply`; finish with `revagent revision-consistency` and `revagent validate`. The agent proposes, RevAgent verifies and blocks stale changes, and the author retains scientific authority.
 
 Install RevAgent once, then let your preferred coding agent run the generated, reviewable workflow prompt:
 
@@ -101,13 +103,13 @@ RevAgent never silently applies an unapproved candidate. `ready_for_author_submi
 
 ```text
 .revagent/
-├── review_comment_atoms.json   # normalized reviewer requests
-├── revision_tasks.json         # actionable revision plan
-├── candidate_edits.json        # reviewable edit candidates
-├── response_trace.json         # request → edit → evidence → response
-├── revision_consistency.json   # cross-artifact consistency checks
-├── rebuttal_draft.md           # point-by-point draft
-└── revision_readiness.json     # remaining blockers and readiness
+â”œâ”€â”€ review_comment_atoms.json   # normalized reviewer requests
+â”œâ”€â”€ revision_tasks.json         # actionable revision plan
+â”œâ”€â”€ candidate_edits.json        # reviewable edit candidates
+â”œâ”€â”€ response_trace.json         # request â†’ edit â†’ evidence â†’ response
+â”œâ”€â”€ revision_consistency.json   # cross-artifact consistency checks
+â”œâ”€â”€ rebuttal_draft.md           # point-by-point draft
+â””â”€â”€ revision_readiness.json     # remaining blockers and readiness
 ```
 
 ## Evaluation
@@ -118,7 +120,7 @@ RevAgent never silently applies an unapproved candidate. `ready_for_author_submi
 | Public eLife histories | 5 | Complete manuscript-version + review/response chains |
 | Public F1000 records | 3 | Legacy review-only agent-coded cases |
 
-Across the eight public proxy cases, the current report contains 23 adjudicated findings with 100% evidence-excerpt coverage and 100% provenance completeness. These are agent-coded silver metrics—not human-expert accuracy estimates.
+Across the eight public proxy cases, the current report contains 23 adjudicated findings with 100% evidence-excerpt coverage and 100% provenance completeness. These are agent-coded silver metricsâ€”not human-expert accuracy estimates.
 
 See [the evaluation release](benchmarks/release-v0.1/README.md), [community data governance](docs/community-contributions.md), and [release notes](RELEASE_NOTES.md).
 
@@ -146,3 +148,4 @@ Private manuscript material stays local. `Cases/`, `.revagent/`, caches, credent
 ## License
 
 Code is released under the [MIT License](LICENSE). Public evaluation records retain their source attribution and per-record license metadata.
+
