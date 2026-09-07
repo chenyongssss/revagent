@@ -6,7 +6,7 @@
 
 **Local-first · Traceable by design · Human-gated**
 
-[简体中文](README.zh-CN.md) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Evaluation](#evaluation) · [Documentation](#documentation)
+[简体中文](README.zh-CN.md) · [Quick Start](#quick-start) · [Codex / Claude Code](#use-with-codex-or-claude-code) · [How It Works](#how-it-works) · [Evaluation](#evaluation)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Status](https://img.shields.io/badge/status-alpha-orange)
@@ -100,16 +100,59 @@ revagent validate
 
 RevAgent never silently applies an unapproved candidate. `ready_for_author_submission` means that the local workflow gates passed; it is not a journal decision or a certification of scientific correctness.
 
-## 🤖 Optional Agent Integration
+## 🤖 Use with Codex or Claude Code
 
-RevAgent works without a coding agent. If you prefer an agent-operated workflow, first preview the generated prompt:
+Most RevAgent users can keep working inside Codex or Claude Code. The coding agent reads the workspace, runs safe RevAgent commands, and drafts changes; RevAgent binds those drafts to LaTeX locations, evidence, hashes, and provenance. Approval and application remain explicit author actions.
+
+### 1. Open the repository in your agent
+
+Start `codex` or `claude` from the repository root, then paste this prompt:
+
+```text
+Read .revagent/agent_report.md and plan.md. Continue the revision workflow using safe RevAgent commands. Analyze reviewer requests, propose candidate manuscript edits, and draft point-by-point responses. Never approve or apply an edit. Stop whenever author judgment, scientific validation, or permission is required, and report the exact next command for the author.
+```
+
+### 2. Let the agent inspect and draft
+
+The agent can use the following safe, non-approval workflow:
+
+```bash
+revagent agent-status
+revagent review-analysis R001
+revagent propose
+```
+
+Replace `R001` with the review item you want to inspect. At this stage, the agent may analyze, plan, and propose, but it must not run `approve`, `revision-apply`, or make scientific decisions on the author's behalf.
+
+### 3. Review and approve as the author
+
+Inspect each candidate yourself. Approval is a separate, deliberate author action:
+
+```bash
+revagent inspect C001
+revagent approve C001
+revagent revision-apply
+```
+
+Replace `C001` with the candidate you have reviewed. For high-risk proof, experiment, or scientific-claim changes, complete the relevant evidence and expert-review gates before approval.
+
+### 4. Verify the finished revision
+
+```bash
+revagent revision-consistency
+revagent validate
+```
+
+The division of responsibility is simple: **the coding agent drafts, RevAgent verifies and blocks stale changes, and the author retains scientific authority.**
+
+RevAgent can also generate a backend-specific workflow prompt. Preview it before launching either integration:
 
 ```bash
 revagent run --backend codex --goal "continue the revision workflow" --dry-run
 revagent run --backend claude --goal "continue the revision workflow" --dry-run
 ```
 
-Remove `--dry-run` only after reviewing the prompt. These adapters invoke the same RevAgent commands and preserve the same approval and validation gates. Other agents can integrate by reading the generated prompt under `.revagent/prompts/`.
+Remove `--dry-run` only after reviewing the generated prompt. Both adapters preserve the same approval and validation gates.
 
 ## 📦 What You Get
 

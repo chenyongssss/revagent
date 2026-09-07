@@ -6,7 +6,7 @@
 
 **本地优先 · 全程可追踪 · 关键决策由作者签核**
 
-[English](README.md) · [快速开始](#快速开始) · [工作原理](#工作原理) · [评测](#评测) · [文档](#文档)
+[English](README.md) · [快速开始](#快速开始) · [Codex / Claude Code](#在-codex-或-claude-code-中使用) · [工作原理](#工作原理) · [评测](#评测)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Status](https://img.shields.io/badge/status-alpha-orange)
@@ -100,16 +100,59 @@ revagent validate
 
 RevAgent 不会静默应用未经批准的修改。`ready_for_author_submission` 仅表示本地工作流门禁已通过，不代表期刊决定，也不构成科学正确性认证。
 
-## 🤖 可选：接入 Coding Agent
+## 🤖 在 Codex 或 Claude Code 中使用
 
-RevAgent 无需 coding agent 也能独立使用。如果希望由 agent 操作工作流，请先预览系统生成的提示：
+大多数 RevAgent 用户可以继续留在熟悉的 Codex 或 Claude Code 中工作。Coding agent 负责读取工作区、运行安全命令并起草修改；RevAgent 负责将草稿绑定到 LaTeX 位置、证据、哈希和溯源记录。批准与应用修改始终是明确的作者操作。
+
+### 1. 在 Agent 中打开仓库
+
+在仓库根目录启动 `codex` 或 `claude`，然后粘贴以下提示词：
+
+```text
+阅读 .revagent/agent_report.md 和 plan.md，使用安全的 RevAgent 命令继续论文返修流程。分析审稿要求，提出稿件修改候选，并起草逐条回复。绝不批准或应用任何修改。遇到需要作者判断、科学验证或权限确认的步骤时立即停止，并向作者报告下一条需要亲自执行的准确命令。
+```
+
+### 2. 让 Agent 分析并起草
+
+Agent 可以执行以下不涉及审批的安全工作流：
+
+```bash
+revagent agent-status
+revagent review-analysis R001
+revagent propose
+```
+
+请将 `R001` 替换为需要处理的审稿事项编号。此阶段 agent 可以分析、规划和提出候选，但不得执行 `approve`、`revision-apply`，也不得代替作者作出科学判断。
+
+### 3. 由作者审阅并批准
+
+作者应亲自检查每个候选。批准必须是独立、明确的作者操作：
+
+```bash
+revagent inspect C001
+revagent approve C001
+revagent revision-apply
+```
+
+请将 `C001` 替换为已经审阅的候选编号。涉及证明、实验或科学结论的高风险修改，应先完成相应的证据与专家审阅门禁，再予以批准。
+
+### 4. 验证最终返修结果
+
+```bash
+revagent revision-consistency
+revagent validate
+```
+
+责任边界很清楚：**coding agent 负责起草，RevAgent 负责验证并阻断过期修改，作者始终保留科学决策权。**
+
+RevAgent 也可以生成适配特定后端的工作流提示。启动集成前请先预览：
 
 ```bash
 revagent run --backend codex --goal "continue the revision workflow" --dry-run
 revagent run --backend claude --goal "continue the revision workflow" --dry-run
 ```
 
-确认提示内容后再移除 `--dry-run`。这些适配器调用的仍是同一套 RevAgent 命令，并保留全部审批与验证门禁。其他 agent 也可以读取 `.revagent/prompts/` 下生成的提示完成集成。
+审阅生成的提示后再移除 `--dry-run`。两个适配器都会保留相同的审批与验证门禁。
 
 ## 📦 关键产物
 
